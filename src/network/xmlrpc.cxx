@@ -577,6 +577,34 @@ public:
 	}
 };
 
+class Modem_get_io_names : public xmlrpc_c::method
+{
+public:
+	Modem_get_io_names()
+	{
+		_signature = "A:n";
+		_help = "Returns all usable KISS, ARQ I/O modem names.";
+	}
+	void execute(const xmlrpc_c::paramList& params, xmlrpc_c::value* retval)
+	{
+		std::vector<xmlrpc_c::value> names;
+		names.reserve(NUM_MODES);
+		std::string snames;
+		for (size_t i = 0; i < NUM_MODES; i++) 
+		{
+			if(mode_info[i].iface_io != DISABLED_IO) 
+			{
+				names.push_back(xmlrpc_c::value_string(mode_info[i].sname));
+				snames.append("\n").append(mode_info[i].sname);
+		    }
+		}
+		LOG_INFO("[%s] modem.get_io_names: %s",
+			XmlRpc::client_id.c_str(),
+			snames.c_str());
+		*retval = xmlrpc_c::value_array(names);
+	}
+};
+
 class Modem_get_names : public xmlrpc_c::method
 {
 public:
@@ -4178,6 +4206,7 @@ ELEM_(Fldigi_terminate, "fldigi.terminate")                            \
 ELEM_(Modem_get_mode, "modem.get_mode")                                \
 ELEM_(Modem_get_submode, "modem.get_submode")                          \
 ELEM_(Modem_get_name, "modem.get_name")                                \
+ELEM_(Modem_get_io_names, "modem.get_io_names")                        \
 ELEM_(Modem_get_names, "modem.get_names")                              \
 ELEM_(Modem_get_id, "modem.get_id")                                    \
 ELEM_(Modem_get_max_id, "modem.get_max_id")                            \

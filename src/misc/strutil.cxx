@@ -91,6 +91,8 @@ std::string strformat( const char * fmt, ... )
 	return str ;
 }
 
+#ifdef __cplusplus < 201703L // < C++17
+
 /// Removes leading spaces and tabs.
 static std::string & strtriml(std::string &str) {
         str.erase(str.begin(), std::find_if(str.begin(), str.end(), std::not1(std::ptr_fun<int, int>(std::isspace))));
@@ -102,6 +104,62 @@ static std::string & strtrimr(std::string &str) {
         str.erase(std::find_if(str.rbegin(), str.rend(), std::not1(std::ptr_fun<int, int>(std::isspace))).base(), str.end());
         return str;
 }
+
+#else // >= C++17
+
+static bool __first_white_space_run = false;
+static std::string __whitespaces;
+
+/// Build a list of white space characters
+static std::string & build_white_space_list(std::string &str) {
+	size_t index = 1;
+	const size_t limit = 256;
+	
+	str.clear();
+	
+	while(index < limit) {
+		if(std::isspace(static_cast<unsigned char>(index)))
+		   str.append(1, static_cast<unsigned char>(index));
+		index++;
+	} 
+	__first_white_space_run = true;
+	
+	return str;
+}
+
+/// Removes leading spaces and tabs.
+static std::string & strtriml(std::string &str) {
+
+   if(!__first_white_space_run)
+      build_white_space_list(__whitespaces);
+   
+   std::size_t pos = str.find_first_not_of(__whitespaces, 0);
+   
+   if(pos != std::string::npos)
+      str.erase(0, pos);
+   else 
+      str.clear();
+   
+   return str;
+}
+
+/// Removes trailing spaces and tabs.
+static std::string & strtrimr(std::string &str) {
+
+   if(!__first_white_space_run)
+      build_white_space_list(__whitespaces);
+ 
+   std::size_t count = str.size();
+   std::size_t pos = str.find_last_not_of(__whitespaces, count);
+  
+   if(pos != std::string::npos && pos < count)
+      str.erase(pos + 1, count);
+   else str.clear();
+	  
+  return str;
+}
+
+#endif // __cplusplus
 
 /// Removes leading trailing spaces and tabs.
 void strtrim(std::string &str) {

@@ -194,37 +194,39 @@ void updateSelect()
 {
 	if (freqlist.empty())
 		return;
+    qso_opBrowser->clear(); // Prevent the list from doubling in size on each reload.
 	for (size_t i = 0; i < freqlist.size(); i++) {
 		qso_opBrowser->add(freqlist[i].str().c_str());
 	}
 }
 
-size_t updateList(unsigned long long rf, int freq, std::string rmd, trx_mode md, std::string usage = "")
+long updateList(unsigned long long rf, int freq, std::string rmd, trx_mode md, std::string usage = "")
 {
 	qrg_mode_t m;
+    size_t index = 0;
+   
 	m.rmode = rmd;
 	m.mode = md;
 	m.rfcarrier = rf;
 	m.carrier = freq;
 	m.usage = usage;
 
+   for(index = 0; index < freqlist.size(); index++) {
+      if (freqlist[index] == m) return -1;
+   }   
+   
 	freqlist.push_back(m);
 	sort(freqlist.begin(), freqlist.end());
 
-	std::vector<qrg_mode_t>::const_iterator pos = find(freqlist.begin(), freqlist.end(), m);
-	if (pos != freqlist.end())
-		return pos - freqlist.begin();
-	else
-		return 0;
-
+   return index;
 }
 
-size_t addtoList(unsigned long long val)
+long addtoList(unsigned long long val)
 {
 	qrg_mode_t m;
 
 	m.rfcarrier = val;
-
+    Fl::lock();
 	if (strlen(qso_opMODE->value()))
 		m.rmode = qso_opMODE->value();
 
@@ -232,6 +234,7 @@ size_t addtoList(unsigned long long val)
 		m.carrier = active_modem->get_freq();
 		m.mode = active_modem->get_mode();
 	}
+    Fl::unlock();
 	return updateList(val, m.carrier, m.rmode, m.mode);
 }
 
@@ -263,6 +266,7 @@ bool readFreqList(bool bdef)
 		is >> m;
 		freqlist.push_back(m);
 	}
+   
 	sort(freqlist.begin(), freqlist.end());
 	updateSelect();
 
@@ -270,7 +274,8 @@ bool readFreqList(bool bdef)
 
 	progStatus.default_frequencies_filename = fl_filename_name(fname.c_str());
 
-	return freqlist.size();
+    if(freqlist.size()) return true;
+	return false;
 }
 
 void saveFreqList(bool bdef)
@@ -331,6 +336,7 @@ void build_frequencies2_list()
 		}
 	}
 	fwidths[max_mode] += (int)ceil(fl_width(mode_info[mmax].sname));
+    qso_opBrowser->column_widths(fwidths);
 
 	if (readFreqList())
 		return;
@@ -532,11 +538,14 @@ void qso_delFreq()
 
 void qso_addFreq()
 {
+	Fl::lock();
 	unsigned long long freq = qsoFreqDisp->value();
 	if (freq) {
-		size_t pos = addtoList(freq);
-		qso_opBrowser->insert(pos+1, freqlist[pos].str().c_str());
+		long pos = addtoList(freq);
+        if(pos > -1)
+            updateSelect();
 	}
+    Fl::unlock();
 }
 
 void qso_updateEntry(int i, std::string usage)

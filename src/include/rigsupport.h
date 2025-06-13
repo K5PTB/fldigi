@@ -42,7 +42,7 @@ extern Cserial rigio;
 extern void initOptionMenus();
 extern void clearList();
 extern void updateSelect();
-extern size_t addtoList(long val);
+extern long addtoList(long long val);
 extern void build_frequencies2_list();
 extern void qso_movFreq(Fl_Widget* w, void*);
 extern int	cb_qso_opMODE();

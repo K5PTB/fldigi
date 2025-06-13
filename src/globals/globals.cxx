@@ -305,20 +305,24 @@ std::ostream& operator<<(std::ostream& s, const qrg_mode_t& m)
 
 std::istream& operator>>(std::istream& s, qrg_mode_t& m)
 {
-	std::string sMode;
+	std::string sMode = "";
 	char temp[255];
-	int mnbr;
-	s >> m.rfcarrier >> m.rmode >> m.carrier >> sMode;
+	int mnbr = 0;
 
+   memset(temp, 0, sizeof(temp));
+   
+   s >> m.rfcarrier >> m.rmode >> m.carrier >> sMode;
 	s.getline(temp, 255);
 	m.usage = temp;
 	while (m.usage[0] == ' ') m.usage.erase(0,1);
 
+// This causes incorrect assignment when modem name starts with a number (ex:8PSK)
 // handle case for reading older type of specification std::string
-	if (sscanf(sMode.c_str(), "%d",&mnbr)) {
-		m.mode = mnbr;
-		return s;
-	}
+// if (sscanf(sMode.c_str(), "%d",&mnbr)) {
+// 	m.mode = mnbr;
+// 	return s;
+// }
+
 	m.mode = MODE_PSK31;
 	for (mnbr = MODE_CW; mnbr < NUM_MODES; mnbr++)
 		if (sMode == mode_info[mnbr].sname) {

@@ -829,7 +829,10 @@ void status::loadLastState()
 	spref.get("afc_enabled", i, afconoff); afconoff = i;
 
 	spref.get("reverse", i, reverse); reverse = i;
+
+#ifndef __WIN32__
 	spref.get("tx_lock", i, tx_lock); tx_lock = i;
+#endif
 
 //	spref.get("rx_text_height", RxTextHeight, RxTextHeight);
 	spref.get("tiled_group_x", tiled_group_x, tiled_group_x);

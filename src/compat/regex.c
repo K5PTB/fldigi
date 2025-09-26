@@ -3742,7 +3742,7 @@ int re_match_2 (struct re_pattern_buffer *bufp, const char *string1, int size1, 
 		/* Compare that many; failure if mismatch, else move
 		   past them.  */
 		if (translate
-		    ? bcmp_translate (d, d2, mcnt, translate)
+		    ? bcmp_translate ((unsigned char *)d, (unsigned char *)d2, mcnt, translate)
 		    : bcmp (d, d2, mcnt))
 		  goto fail;
 		d += mcnt, d2 += mcnt;

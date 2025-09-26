@@ -2039,7 +2039,7 @@ numeric keypad&#8217;s 0-9 the sequence will be discarded.</p></div>\n\
 <div id=\"footer\">\n\
 <div id=\"footer-text\">\n\
 Last updated\n\
- 2025-06-10 00:06:08 \n\
+ 2025-07-04 15:44:13 \n\
 </div>\n\
 <div id=\"footer-badges\">\n\
 <a href=\"https://validator.w3.org/check?uri=referer\">\n\

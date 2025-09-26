@@ -853,7 +853,7 @@ LOG_INFO("Closing rig interface threads");
 		push2talk->reset(PTT::PTT_UHROUTER);
 	else if (cmedia_ptt)
 		push2talk->reset(PTT::PTT_CMEDIA);
-	else if (gpio_ptt)
+	else if (gpio_ptt_sel)
 		push2talk->reset(PTT::PTT_GPIO);
 	else
 		push2talk->reset(PTT::PTT_NONE);

@@ -75,19 +75,26 @@
 
 #include "audio_alert.h"
 
+#include "gpio_common.h"
+
 #define FIR_DECIMATE    10 //16
 
 void start_cwio_thread();
 void stop_cwio_thread();
-
-void start_gpio_thread();
-void stop_gpio_thread();
 
 static double nano_d2d = 0;
 static int nano_wpm = 0;
 static bool first_time = true;
 static double cw_freq = 1500;
 static int FIR_FILTER_LEN = 512;
+
+#if USE_LIBGPIOD
+
+void start_gpio_thread();
+void stop_gpio_thread();
+static gpio_num_t cw_gpio_num = GPIO_COMMON_UNKNOWN;
+
+#endif
 
 const cw::SOM_TABLE cw::som_table[] = {
 	/* Prosigns */
@@ -292,7 +299,9 @@ cw::~cw() {
 	if (bitfilter) delete bitfilter;
 	if (trackingfilter) delete trackingfilter;
 	stop_cwio_thread();
+#if USE_LIBGPIOD
 	stop_gpio_thread();
+#endif
 }
 
 static int debug_count = 0;
@@ -396,6 +405,10 @@ cw::cw() : modem()
 	cal_wpm = 20;
 
 	start_cwio_thread();
+
+#if USE_LIBGPIOD
+	cw_gpio_num = GPIO_COMMON_UNKNOWN;
+#endif
 
 }
 
@@ -1321,9 +1334,10 @@ int cw::tx_process()
 		progdefaults.CW_KEYLINE_on_ptt_port)
 		send_CW(c);
 
-	if (progdefaults.gpio_cw)
+#if USE_LIBGPIOD
+	if (progdefaults.gpio_cw_line != -1)
 		send_gpio_CW(c);
-
+#endif
 	send_ch(c);
 
 	first_char = false;
@@ -2017,6 +2031,8 @@ void CAT_keying_test()
 // CW output on GPIO pin
 //----------------------------------------------------------------------
 
+#if USE_LIBGPIOD
+
 #include <queue>
 #include <fcntl.h>
 
@@ -2031,65 +2047,16 @@ static bool				CW_gpio_terminate_flag   = false;
 
 static cMorse			*gpio_morse = 0;
 
-static int				CW_gpio_fd = -1;
-
-static const char *gpio_name[] = {
-		"17", "18", "27", "22", "23",
-		"24", "25", "4",  "5",  "6",
-		"13", "19", "26", "12", "16",
-		"20", "21"};
-
 static void set_gpio_pin(bool key)
 {
-	static const char s_values_str[] = "01";
+	int ret;
 
-	std::string portname = "/sys/class/gpio/gpio";
-	std::string ctrlport;
-	bool enabled = false;
-	int val = 0;
-	int fd = -1;
+	ret = gpio_common_set(cw_gpio_num, key);
 
-	for (int i = 0; i < 17; i++) {
-		enabled = (progdefaults.enable_gpio_cw >> i) & 0x01;
-
-		if (enabled) {
-			val = (progdefaults.gpio_cw_on >> i) & 0x01;
-			ctrlport = portname;
-			ctrlport.append(gpio_name[i]);
-			ctrlport.append("/value");
-			CW_gpio_fd = fl_open(ctrlport.c_str(), O_WRONLY);
-
-			bool ok = false;
-			if (fd == -1) {
-				LOG_ERROR("Failed to open gpio (%s) for writing!", ctrlport.c_str());
-			} else {
-				if (progdefaults.gpio_pulse_width == 0) {
-					if (key) { if (val == 1) val = 1; else val = 0;}
-					if (!key)  { if (val == 1) val = 0; else val = 1;}
-					if (write(fd, &s_values_str[val], 1) == 1)
-						ok = true;
-				} else {
-					if (write(fd, &s_values_str[val], 1) == 1) {
-						MilliSleep(progdefaults.gpio_pulse_width);
-						if (write(fd, &s_values_str[val == 0 ? 1 : 0], 1) == 1)
-							ok = true;
-					}
-				}
-				if (ok)
-					LOG_INFO("Set GPIO CW_gpio keyline on %s %s%s",
-						ctrlport.c_str(),
-						(progdefaults.gpio_pulse_width > 0) ?
-							"pulsed " : "",
-						(val == 1 ? "HIGH" : "LOW")
-					);
-				else
-					LOG_ERROR("Failed to write to GPIO CW_gpio pin!");
-
-				close(fd);
-				return;
-			}
-		}
+	if (ret < 0) {
+		LOG_ERROR("Error setting GPIO");
 	}
+
 }
 
 //----------------------------------------------------------------------
@@ -2222,14 +2189,13 @@ static void send_gpio(int c)
 	}
 }
 
-static int CW_gpio_ch;
-
 static void * CW_gpio_loop(void *args)
 {
 //	SET_THREAD_ID(CW_gpio_TID);
 
 	CW_gpio_thread_running   = true;
 	CW_gpio_terminate_flag   = false;
+	int CW_gpio_ch;
 
 	while(1) {
 		pthread_mutex_lock(&CW_gpio_mutex);
@@ -2271,6 +2237,10 @@ void stop_gpio_thread(void)
 
 	CW_gpio_thread_running   = false;
 	CW_gpio_terminate_flag   = false;
+
+	if (cw_gpio_num != GPIO_COMMON_UNKNOWN)
+		gpio_common_close(cw_gpio_num);
+	cw_gpio_num = GPIO_COMMON_UNKNOWN;
 
 }
 
@@ -2317,12 +2287,18 @@ void start_gpio_thread(void)
 
 void cw::send_gpio_CW(int c)
 {
-	if (!CW_gpio_thread_running)
-		start_gpio_thread();
+	if (!progdefaults.enable_gpio_cw || (progdefaults.gpio_cw_line == -1)) return;
 
+	if (!CW_gpio_thread_running) {
+		LOG_INFO("Opening GPIO for CW keying");
+		cw_gpio_num = gpio_common_open_line(progdefaults.gpio_cw_device.c_str(), progdefaults.gpio_cw_line, false);
+		start_gpio_thread();
+	}
 	guard_lock lk(&GPIO_fifo_mutex);
 	fifo.push(c);
 
 	pthread_cond_signal(&CW_gpio_cond);
 
 }
+
+#endif

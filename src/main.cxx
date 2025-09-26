@@ -131,6 +131,10 @@ extern Fl_Scroll       *wefax_pic_rx_scroll;
 	#include "benchmark.h"
 #endif
 
+#if USE_LIBGPIOD
+	#include "gpio_common.h"
+#endif
+
 using namespace std;
 
 string appname;
@@ -817,6 +821,10 @@ int main (int argc, char *argv[])
 	HomeDir.clear();
 	NBEMS_dir.clear();
 	FLMSG_dir.clear();
+
+#if USE_LIBGPIOD
+	gpio_common_init();
+#endif
 
 #ifdef __WOE32__
 	size_t p = appdir.rfind("fldigi.exe");

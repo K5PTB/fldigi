@@ -119,6 +119,11 @@ extern Fl_Scroll       *wefax_pic_rx_scroll;
 #include "FTextRXTX.h"
 
 #include "confdialog.h"
+
+#if USE_LIBGPIOD
+#include "gpio_conf.h"
+#endif
+
 #include "configuration.h"
 #include "status.h"
 #include "ui_colors.h"
@@ -257,6 +262,7 @@ Fl_Double_Window	*scopeview					= (Fl_Double_Window *)0;
 Fl_Double_Window	*field_day_viewer			= (Fl_Double_Window *)0;
 Fl_Double_Window	*dxcluster_viewer			= (Fl_Double_Window *)0;
 Fl_Double_Window	*rxaudio_dialog				= (Fl_Double_Window *)0;
+Fl_Double_Window	*dlgGPIO_config				= (Fl_Double_Window *)0;
 
 Fl_Help_Dialog 		*help_dialog       = (Fl_Help_Dialog *)0;
 
@@ -1649,7 +1655,7 @@ void redraw_windows()
 		dxcluster_viewer, dxcc_window,
 		dlgViewer, dlgLogbook, lotw_review_dialog,  
 		wExport, wCabrillo, wUDPfields,
-		dlgConfig, notify_window,
+		dlgConfig, notify_window, dlgGPIO_config,
 		picRxWin, picTxWin,
 		thorpicRxWin, thorpicTxWin,
 		fsqMonitor, fsqpicRxWin, fsqpicTxWin,
@@ -1667,7 +1673,7 @@ void remove_windows()
 		"scope view", "record loader", "cluster viewer", "dxcc window",
 		"viewer", "logbook", "lotw review",
 		"export", "cabrillo", "UDP fields",
-		"config", "notify",
+		"config", "notify", "GPIO config",
 		"mfsk rxwin", "mfsk txwin",
 		"thor rxwin", "thor txwin",
 		"fsq monitor", "fsq rxwin", "fsq txwin",
@@ -1680,7 +1686,7 @@ void remove_windows()
 		dxcluster_viewer, dxcc_window,
 		dlgViewer, dlgLogbook, lotw_review_dialog,  
 		wExport, wCabrillo, wUDPfields,
-		dlgConfig, notify_window,
+		dlgConfig, notify_window, dlgGPIO_config,
 		picRxWin, picTxWin,
 		thorpicRxWin, thorpicTxWin,
 		fsqMonitor, fsqpicRxWin, fsqpicTxWin,
@@ -2363,6 +2369,14 @@ void cb_mnuConfigNotify(Fl_Menu_*, void*)
 {
 	notify_show();
 }
+
+#if USE_LIBGPIOD
+void cb_mnuConfigGPIO(Fl_Menu_*, void*)
+{
+	if (!dlgGPIO_config) dlgGPIO_config	= make_gpio_conf_dialog();
+	dlgGPIO_config->show();
+}
+#endif
 
 void cb_mnuTestSignals(Fl_Menu_*, void*)
 {
@@ -6334,6 +6348,9 @@ Fl_Menu_Item menu_[] = {
 
 { icons::make_icon_label(_("Config Dialog")), 0, (Fl_Callback*)cb_mnu_config_dialog, 0, FL_MENU_DIVIDER, _FL_MULTI_LABEL, 0, 14, 0},
 { icons::make_icon_label(_("Save Config"), save_icon), 0, (Fl_Callback*)cb_mnuSaveConfig, 0, FL_MENU_DIVIDER, _FL_MULTI_LABEL, 0, 14, 0},
+#if USE_LIBGPIOD
+{ icons::make_icon_label(_("GPIO Config")), 0,  (Fl_Callback*)cb_mnuConfigGPIO, 0, FL_MENU_DIVIDER, _FL_MULTI_LABEL, 0, 14, 0},
+#endif
 { icons::make_icon_label(_("Notifications")), 0,  (Fl_Callback*)cb_mnuConfigNotify, 0, FL_MENU_DIVIDER, _FL_MULTI_LABEL, 0, 14, 0},
 { icons::make_icon_label(_("Test Signals")), 0, (Fl_Callback*)cb_mnuTestSignals, 0, 0, _FL_MULTI_LABEL, 0, 14, 0},
 {0,0,0,0,0,0,0,0,0},
@@ -10235,8 +10252,7 @@ void set_default_btn_color()
 		chkRigCatRTSCTSflow,
 		chk_restore_tio,
 		chkRigCatVSP,
-		btn_gpio_ptt2,
-
+/*
 		btn_enable_gpio[0], btn_enable_gpio[1], btn_enable_gpio[2], btn_enable_gpio[3], btn_enable_gpio[4], 
 		btn_enable_gpio[5], btn_enable_gpio[6], btn_enable_gpio[7], btn_enable_gpio[8], btn_enable_gpio[9], 
 		btn_enable_gpio[10], btn_enable_gpio[11], btn_enable_gpio[12], btn_enable_gpio[13], btn_enable_gpio[14], 
@@ -10246,7 +10262,7 @@ void set_default_btn_color()
 		btn_gpio_on[5], btn_gpio_on[6], btn_gpio_on[7], btn_gpio_on[8], btn_gpio_on[9], 
 		btn_gpio_on[10], btn_gpio_on[11], btn_gpio_on[12], btn_gpio_on[13], btn_gpio_on[14], 
 		btn_gpio_on[15], btn_gpio_on[16],
-
+*/
 		chkUSEHAMLIB,
 		btnHamlibCMDptt,
 		btnHamlibPTT_ON_DATA,
@@ -10257,7 +10273,6 @@ void set_default_btn_color()
 		chk_hamlib_cw_is_lsb,
 		chk_hamlib_rtty_is_usb,
 		btnPTTrightchannel,
-		btn_gpio_ptt,
 		btn_enable_regex_match_wa,
 		btn_enable_mycall_match_wav,
 		btn_enable_rsid_match_wav,

@@ -595,7 +595,7 @@ std::string adif_record(cQsoRec *rec)
 			snprintf(recfield, sizeof(recfield),
 				"<%s:%lu>",
 				fields[j].name,
-				sFld.length());
+				(unsigned long int)sFld.length());
 			record.append(recfield).append(sFld);
 		}
 	}

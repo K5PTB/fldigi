@@ -31,6 +31,8 @@
 #include <cstring>
 #include <string>
 
+#include <config.h>
+
 #include "modem.h"
 #include "filters.h"
 #include "fftfilt.h"
@@ -174,7 +176,7 @@ protected:
 	inline double nco(double freq);
 	inline double qsknco();
 	void	update_syncscope();
-	void    clear_syncscope();
+	void  clear_syncscope();
 	void	update_Status();
 	void	sync_parameters();
 	void	reset_rx_filter();
@@ -219,7 +221,10 @@ protected:
 	void	flush_audio();
 
 	void send_CW(int);
+
+#if USE_LIBGPIOD
 	void send_gpio_CW(int c);
+#endif
 
 	view_cw	viewcw;
 

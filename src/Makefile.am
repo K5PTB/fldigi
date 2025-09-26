@@ -1,4 +1,4 @@
-## Copyright (C) 2007-2009 Stelios Bounanos, M0GLD (m0gld AT enotty DOT net)
+# Copyright (C) 2007-2009 Stelios Bounanos, M0GLD (m0gld AT enotty DOT net)
 # Copyright (c) 2008 Dave Freese, W1HKJ (w1hkj AT w1hkj DOT com)
 # Copyright (c) 2012 Remi Chateauneu, F4ECW (remi dot chateauneu AT gmail DOT com)
 # License: GPLv3+: GNU GPL version 3 or later.
@@ -414,6 +414,7 @@ endif
 FLDIGI_FL_SRC = \
 		debug/debug_dialog.fl \
 		dialogs/confdialog.fl \
+		dialogs/gpio_conf.fl \
 		dialogs/notifydialog.fl \
 		dialogs/record_browse.fl \
 		dialogs/rxmon.fl \
@@ -530,6 +531,7 @@ fldigi_SOURCES += \
 	debug/debug.cxx \
 	debug/debug_dialog.cxx \
 	dialogs/confdialog.cxx \
+	dialogs/gpio_conf.cxx \
 	dialogs/fl_digi.cxx \
 	dialogs/font_browser.cxx \
 	dialogs/htmlstrings.cxx \
@@ -558,6 +560,7 @@ fldigi_SOURCES += \
 	fsq/fsq.cxx \
 	fsq/fsq_monitor.cxx \
 	globals/globals.cxx \
+	gpio_common/gpio_common.cxx \
 	ifkp/ifkp.cxx \
 	ifkp/tux.cxx \
 	irrxml/CXMLReaderImpl.h \
@@ -774,6 +777,8 @@ EXTRA_fldigi_SOURCES += \
 	include/combo.h \
 	include/complex.h \
 	include/confdialog.h \
+	include/gpio_conf.h \
+	include/gpio_common.h \
 	include/configuration.h \
 	include/contest.h \
 	include/contestia.h \

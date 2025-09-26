@@ -35,6 +35,10 @@
 
 #include <config.h>
 
+#if USE_LIBGPIOD
+#include "gpio_common.h"
+#endif
+
 #if HAVE_LINUX_PPDEV_H || HAVE_DEV_PPBUS_PPI_H
 #  define HAVE_PARPORT 1
 #else
@@ -81,6 +85,14 @@ private:
 	int pttfd;
 	struct termios* oldtio;
 
+#if USE_LIBGPIOD
+	gpio_num_t ptt_gpio_num;
+
+	void open_gpio(void);
+	void set_gpio(bool ptt);
+	void close_gpio(void);
+#endif
+
 #if HAVE_UHROUTER
 	// uhrouter
 	int uhkfd[2]; // keyer
@@ -92,10 +104,6 @@ private:
 	void open_tty(void);
 	void set_tty(bool ptt);
 	void close_tty(void);
-
-	void open_gpio(void);
-	void set_gpio(bool ptt);
-	void close_gpio(void);
 
 #if HAVE_PARPORT
 	void open_parport(void);

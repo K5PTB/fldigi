@@ -218,6 +218,14 @@ if test "x$ac_cv_want_fldigi" = "xyes"; then
     AC_FLDIGI_PKG_CHECK([png], [libpng >= 1.2.8], [no], [no])
 fi
 
+### libgpiod
+# Set ac_cv_libgpiod to yes/no
+# Define USE_LIBGPIOD in config.h
+# Substitute LIBGPIOD_CFLAGS and LIBGPIOD_LIBS in Makefile
+if test "x$ac_cv_want_fldigi" = "xyes"; then
+    AC_FLDIGI_PKG_CHECK([libgpiod], [libgpiod >= 2.2.1], [no], [yes])
+fi
+
 ### libsamplerate
 # Required if $ac_cv_want_fldigi is "yes"
 # Set ac_cv_samplerate to yes/no    (not used)
@@ -372,6 +380,7 @@ if test "x$ac_cv_want_fldigi" = "xyes"; then
   oss ......................... $ac_cv_oss
   portaudio ................... $ac_cv_portaudio
   pulseaudio .................. $ac_cv_pulseaudio
+  libgpiod .................... $ac_cv_libgpiod
 
   libmbedtls .................. $ac_mbedtls_report
   flxmlrpc .................... $ac_xmlrpc_report

@@ -1514,32 +1514,31 @@
               false)                                                                    \
         /* GPIO parameters */                                                           \
         /* PTT parameters */                                                            \
-        ELEM_(bool, gpio_ptt, "USE_GPIO_PTT",                                           \
-              "use GPIO for ptt (pi3/4)",                                               \
+        ELEM_(bool, enable_gpio_ptt, "ENABLE_GPIO_PTT",                                 \
+              "Set to true for GPIO PTT",                                               \
               false)                                                                    \
-        ELEM_(long, enable_gpio, "ENABLE_GPIO",                                         \
-              "GPIO enable\n"                                                           \
-              "bits 0 - 16; bit 0 : gpio pin N",                                        \
+        ELEM_(int, gpio_ptt_sel, "GPIO_PTT_SEL",                                        \
+              "GPIO ptt selection",                                                     \
               0)                                                                        \
-        ELEM_(long, gpio_on, "GPIO_STATE",                                              \
-              "GPIO State\n"                                                            \
-              "bits 0 - 16; bit 0 : PTT ON state on pin N",                             \
-              0)                                                                        \
-        ELEM_(int, gpio_pulse_width, "GPIO_PULSE_WIDTH",                                \
-              "GPIO pulse width setting for PiHpSDR PTT",                               \
-              0)                                                                        \
+        ELEM_(int, gpio_ptt_line, "GPIO_ptt_LINE",                                      \
+              "GPIO ptt line number; -1 : no selection",                                \
+              -1)                                                                       \
+        ELEM_(std::string, gpio_ptt_device, "GPIO_PTT_DEVICE",                          \
+              "PTT device",                                                             \
+              "/dev/gpiochip0")                                                         \
         /* CW parameters */                                                             \
-        ELEM_(bool, gpio_cw, "USE_GPIO_CW",                                             \
-              "CW signal on GPIO pin",                                                  \
+        ELEM_(bool, enable_gpio_cw, "ENABLE_GPIO_CW",                                   \
+              "Set to true for GPIO CW",                                                \
               false)                                                                    \
-        ELEM_(long, enable_gpio_cw, "ENABLE_GPIO_CW",                                   \
-              "GPIO enable cw on\n"                                                     \
-              "bits 0 - 16; bit 0 : gpio pin N",                                        \
+        ELEM_(int, gpio_cw_sel, "GPIO_CW_SEL",                                          \
+              "GPIO cw selection",                                                      \
               0)                                                                        \
-        ELEM_(long, gpio_cw_on, "GPIO_CW_STATE",                                        \
-              "GPIO CW State\n"                                                         \
-              "bits 0 - 16; bit 0 : PTT ON state on pin N",                             \
-              0)                                                                        \
+        ELEM_(int, gpio_cw_line, "GPIO_CW_LINE",                                        \
+              "GPIO cw line number; -1 : no selection",                                 \
+              -1)                                                                       \
+        ELEM_(std::string, gpio_cw_device, "GPIO_CW_DEVICE",                            \
+              "CW device",                                                              \
+              "/dev/gpiochip0")                                                         \
         /* cmedia parameters */                                                         \
         ELEM_(std::string, cmedia_device, "CMEDIA_DEVICE",                              \
               "DRA-xx device name",                                                     \

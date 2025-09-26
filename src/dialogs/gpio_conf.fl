@@ -1,0 +1,139 @@
+# data file for the Fltk User Interface Designer (fluid)
+version 1.0403
+i18n_type 1
+i18n_include {"gettext.h"}
+i18n_conditional {}
+i18n_gnu_function gettext
+i18n_gnu_static_function gettext_noop
+header_name {.h}
+code_name {.cxx}
+decl {\#include "configuration.h"} {private local
+}
+
+decl {\#include "rigsupport.h"} {private local
+}
+
+decl {\#include "fl_digi.h"} {private local
+}
+
+decl {\#include <stdlib.h>} {private local
+}
+
+Function {make_gpio_conf_dialog()} {open
+} {
+  Fl_Window {} {
+    label {Configure GPIO} open
+    xywh {1582 25 324 242} type Double visible
+  } {
+    Fl_Button btn_close_GPIO_config {
+      label Close
+      callback {dlgGPIO_config->hide();
+progdefaults.changed = true;}
+      tooltip {Initialize the H/W PTT interface} xywh {230 214 80 24}
+    }
+    Fl_Group {} {open
+      xywh {2 5 320 100} box ENGRAVED_BOX
+    } {
+      Fl_Input gpio_ptt_line {
+        label {On Line}
+        callback {progdefaults.gpio_ptt_line = atoi(o->value());
+progdefaults.enable_gpio_ptt = false;
+btn_enable_gpio_ptt->value(0);
+progdefaults.changed = true;}
+        tooltip {Enter GPIO line for PTT} xywh {78 69 92 22} type Int
+        code0 {static char linenbr[20];}
+        code1 {snprintf(linenbr, sizeof(linenbr), "%d", progdefaults.gpio_ptt_line);}
+        code2 {o->value(linenbr);}
+      }
+      Fl_Check_Button btn_enable_gpio_ptt {
+        label {Enable GPIO PTT}
+        callback {progdefaults.enable_gpio_ptt = o->value();
+progdefaults.changed = true;}
+        tooltip {Set device & line, then enable} xywh {174 69 135 22} down_box DOWN_BOX
+        code0 {o->value(progdefaults.enable_gpio_ptt);}
+      }
+      Fl_Input gpio_ptt_dev {
+        label {GPIO PTT device}
+        callback {progdefaults.gpio_ptt_device = o->value();
+progdefaults.enable_gpio_ptt = false;
+btn_enable_gpio_ptt->value(0);
+progdefaults.changed = true;}
+        tooltip {Select PTT device file} xywh {5 35 240 24} align 5
+        code0 {o->value(progdefaults.gpio_ptt_device.c_str());}
+      }
+      Fl_Button btn_select_gpio_ptt {
+        label Select
+        callback {Fl_Native_File_Chooser fnfc;
+fnfc.title("Select GPIO PTT device");
+fnfc.type(Fl_Native_File_Chooser::BROWSE_FILE);
+fnfc.filter("GPIO devices\\t*gpio*\\n");
+fnfc.directory("/dev");           // default directory to use
+// Show native chooser
+switch ( fnfc.show() ) {
+  case -1: break; // ERROR
+  case  1: break; // CANCEL
+  default: {
+    gpio_ptt_dev->value(fnfc.filename());
+    progdefaults.enable_gpio_ptt = false;
+    btn_enable_gpio_ptt->value(0);
+    break; // FILE CHOSEN
+  }
+}}
+        xywh {253 35 60 24}
+        code0 {\#include <FL/Fl_Native_File_Chooser.H>}
+      }
+    }
+    Fl_Group {} {open
+      xywh {2 105 322 100} box ENGRAVED_BOX
+    } {
+      Fl_Check_Button btn_enable_gpio_cw {
+        label {Enable GPIO CW}
+        callback {progdefaults.enable_gpio_cw = o->value();
+progdefaults.changed = true;}
+        tooltip {Set device & line, then enable} xywh {174 171 135 22} down_box DOWN_BOX
+        code0 {o->value(progdefaults.enable_gpio_cw);}
+      }
+      Fl_Input gpio_cw_line {
+        label {On Line}
+        callback {progdefaults.gpio_cw_line = atoi(o->value());
+progdefaults.enable_gpio_cw = false;
+btn_enable_gpio_cw->value(0);
+progdefaults.changed = true;} selected
+        tooltip {Enter GPIO line for CW} xywh {78 171 92 22} type Int
+        code0 {static char linenbr[20];}
+        code1 {snprintf(linenbr, sizeof(linenbr), "%d", progdefaults.gpio_cw_line);}
+        code2 {o->value(linenbr);}
+      }
+      Fl_Input gpio_cw_dev {
+        label {GPIO CW device}
+        callback {progdefaults.gpio_cw_device = o->value();
+progdefaults.enable_gpio_cw = false;
+btn_enable_gpio_cw->value(0);
+progdefaults.changed = true;}
+        tooltip {Select PTT device file} xywh {6 130 240 24} align 5
+        code0 {o->value(progdefaults.gpio_cw_device.c_str());}
+      }
+      Fl_Button btn_select_gpio_cw {
+        label Select
+        callback {Fl_Native_File_Chooser fnfc;
+fnfc.title("Select GPIO CW device");
+fnfc.type(Fl_Native_File_Chooser::BROWSE_FILE);
+fnfc.filter("GPIO devices\\t*gpio*\\n");
+fnfc.directory("/dev");           // default directory to use
+// Show native chooser
+switch ( fnfc.show() ) {
+  case -1: break; // ERROR
+  case  1: break; // CANCEL
+  default: {
+    gpio_cw_dev->value(fnfc.filename());
+    progdefaults.enable_gpio_ptt = false;
+    btn_enable_gpio_cw->value(0);
+    break; // FILE CHOSEN
+  }
+}}
+        xywh {253 130 60 24}
+        code0 {\#include <FL/Fl_Native_File_Chooser.H>}
+      }
+    }
+  }
+}

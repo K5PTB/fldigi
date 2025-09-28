@@ -1,6 +1,12 @@
-2025-09-08  dave-w1hkj  <w1hkj25@gmail.com>
+2025-09-27  dave-w1hkj  <w1hkj25@gmail.com>
 
-	42811d228b: Version 4.2.09
+	1e38aaddee: alpha
+	924ee23c0b: Mxe compatability
+	437c45065a: Add gpiod support
+	690d841dae: fsq sounder
+	a83ecd638d: cw/wfall-only
+	ca8538fcd6: Regex Search
+	ba5d357a16: Version 4.2.09
 	3292f4a9c6: fmt segmentation fault
 	039cb1c527: Version 4.2.08
 	73a641244c: Export ADIF defaults

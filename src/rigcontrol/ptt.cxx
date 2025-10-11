@@ -81,10 +81,10 @@ int cmedia_fd = -1;
 
 PTT::PTT(ptt_t dev) : pttdev(PTT_INVALID), oldtio(0)
 {
-	reset(dev);
 #if USE_LIBGPIOD
 	ptt_gpio_num = GPIO_COMMON_UNKNOWN;
 #endif
+	reset(dev);
 }
 
 PTT::~PTT()
@@ -127,6 +127,10 @@ void PTT::reset(ptt_t dev)
 	}
 #if USE_LIBGPIOD
 	open_gpio();
+	if (progdefaults.enable_gpio_ptt && (progdefaults.gpio_ptt_line != -1) &&
+	    (ptt_gpio_num != GPIO_COMMON_UNKNOWN)) {
+		pttdev = PTT_GPIO;
+	}
 #endif
 	set(false);
 }
@@ -248,11 +252,17 @@ void PTT::close_all(void)
 
 void PTT::open_gpio(void)
 {
-	if (!progdefaults.enable_gpio_ptt || (progdefaults.gpio_ptt_line == -1))
+	if (!progdefaults.enable_gpio_ptt || (progdefaults.gpio_ptt_line == -1) || ptt_gpio_num != GPIO_COMMON_UNKNOWN) {
 		return;
+	}
+	LOG_INFO("Opening GPIO line %d on device %s for PTT",
+		progdefaults.gpio_ptt_line,
+		progdefaults.gpio_ptt_device.c_str());
 	ptt_gpio_num = gpio_common_open_line(progdefaults.gpio_ptt_device.c_str(), progdefaults.gpio_ptt_line, false);
 	if (ptt_gpio_num == GPIO_COMMON_UNKNOWN) {
 		LOG_ERROR("Failed to open GPIO line");
+	} else {
+		LOG_INFO("GPIO line opened successfully");
 	}
 	return;
 }
@@ -277,7 +287,7 @@ void PTT::set_gpio(bool ptt)
 	}
 }
 
-#endif
+#endif //USE_LIBGPIOD
 
 //-------------------- serial port PTT --------------------//
 

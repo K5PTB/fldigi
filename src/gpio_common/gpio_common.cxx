@@ -159,21 +159,6 @@ out:
 }
 
 
-int gpio_common_release_line(gpio_num_t gpio_num)
-{
-	if (gpio_num >= GPIO_MAX_LINES) {
-		return GPIO_COMMON_ERR;
-	}
-
-	if (gpio[gpio_num].request != NULL) {
-		gpiod_line_request_release(gpio[gpio_num].request);
-		gpio[gpio_num].request = NULL;
-	}
-
-	return GPIO_COMMON_OK;
-}
-
-
 int gpio_common_set(gpio_num_t gpio_num, bool val)
 {
 	if (gpio_num >= GPIO_MAX_LINES || gpio[gpio_num].request == NULL) {
@@ -202,10 +187,17 @@ int gpio_common_set(gpio_num_t gpio_num, bool val)
 
 int gpio_common_close(gpio_num_t line_num)
 {
-	gpio_common_release_line( line_num );
-//	for (gpio_num_t i = 0; i < GPIO_MAX_LINES; i++) {
-//		gpio_common_release_line(i);
-//	}
+	if (line_num >= GPIO_MAX_LINES) {
+		return GPIO_COMMON_ERR;
+	}
+
+	if (gpio[line_num].request != NULL) {
+		LOG_INFO("Releasing GPIO line %d\n", line_num);
+		gpiod_line_request_release(gpio[line_num].request);
+		gpio[line_num].request = NULL;
+		gpio[line_num].used = false;
+		gpio[line_num].offset = 0;
+	}
 	return GPIO_COMMON_OK;
 }
 

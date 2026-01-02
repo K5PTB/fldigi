@@ -26,7 +26,7 @@
 // along with fldigi.  If not, see <http://www.gnu.org/licenses/>.
 // ----------------------------------------------------------------------------
 
-#define CW_DEBUG 1
+#define CW_DEBUG 0
 
 #include <config.h>
 

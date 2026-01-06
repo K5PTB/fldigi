@@ -1780,7 +1780,6 @@ void reflevel_cb(Fl_Widget *w, void *v) {
 	double val = wf->wfRefLevel->value();
 	progdefaults.wfRefLevel = val;
 	restoreFocus();
-std::cout << "ref: " << val << std::endl;
 }
 
 void ampspan_cb(Fl_Widget *w, void *v) {
@@ -2560,13 +2559,19 @@ int WFdisp::handle(int event)
 		}
 		break;
 	case FL_RELEASE:
-		switch (eb = Fl::event_button()) {
-		case FL_RIGHT_MOUSE:
+		eb = Fl::event_button();
+		if (eb == FL_RIGHT_MOUSE) {
 			tmp_carrier = false;
-			if (active_modem) active_modem->set_freq(oldcarrier);
+			if (active_modem) {
+				if (Fl::event_state() & FL_CTRL) {
+					do_qsy(true);
+				} else {
+					active_modem->set_freq(oldcarrier);
+				}
+			}
 			restoreFocus();
-			// fall through
-		case FL_LEFT_MOUSE:
+		}
+		else if (eb == FL_LEFT_MOUSE) {
 			push = 0;
 			oldcarrier = newcarrier;
 			if (eb != FL_LEFT_MOUSE || !ReceiveText->visible())

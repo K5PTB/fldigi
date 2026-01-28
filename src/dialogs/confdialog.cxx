@@ -1509,12 +1509,13 @@ Fl_Button *btnXMIT=(Fl_Button *)0;
 static void cb_btnXMIT(Fl_Button*, void*) {
   TRIAD clr = ui_colors.XMITcolor;
   if (fl_color_chooser("XMIT color", clr.r, clr.g, clr.b )) {
-      btnXMIT->color( RGBCOLOR( XMITcolor ) );
-      btnXMIT->redraw();
-      TransmitText->setFontColor( RGBCOLOR( XMITcolor ), FTextBase::XMIT);
-      ReceiveText->setFontColor( RGBCOLOR( XMITcolor ), FTextBase::XMIT);
+    ui_colors.XMITcolor = clr;
+    btnXMIT->color( RGBCOLOR( XMITcolor ) );
+    btnXMIT->redraw();
+    TransmitText->setFontColor( RGBCOLOR( XMITcolor ), FTextBase::XMIT);
+    ReceiveText->setFontColor( RGBCOLOR( XMITcolor ), FTextBase::XMIT);
 
-      progdefaults.changed = true;}
+    progdefaults.changed = true;}
 }
 
 Fl_Button *btnCTRL=(Fl_Button *)0;
@@ -1567,6 +1568,13 @@ static void cb_btnSEL(Fl_Button*, void*) {
     ReceiveText->color( RGBCOLOR( RxColor ), RGBCOLOR( RxTxSelectcolor ) );
     TransmitText->color( RGBCOLOR( TxColor ), RGBCOLOR( RxTxSelectcolor ) );
   progdefaults.changed = true;}
+}
+
+Fl_Check_Button *btn_show_all_codes=(Fl_Check_Button *)0;
+
+static void cb_btn_show_all_codes(Fl_Check_Button* o, void*) {
+  progdefaults.show_all_codes=o->value();
+  progdefaults.changed = true;
 }
 
 Fl_Button *btnNoTextColor=(Fl_Button *)0;
@@ -1686,13 +1694,6 @@ static void cb_btnTextDefaults(Fl_Button*, void*) {
       TransmitText->redraw();
 
       progdefaults.changed = true;
-}
-
-Fl_Check_Button *btn_show_all_codes=(Fl_Check_Button *)0;
-
-static void cb_btn_show_all_codes(Fl_Check_Button* o, void*) {
-  progdefaults.show_all_codes=o->value();
-  progdefaults.changed = true;
 }
 
 Fl_Button *btnTabColor=(Fl_Button *)0;
@@ -10407,7 +10408,7 @@ Fl_Double_Window* ConfigureDialog() {
       { btnMacroEditFont = new Fl_Button(523, 164, 120, 21, gettext("Macro Edit Font"));
         btnMacroEditFont->callback((Fl_Callback*)cb_btnMacroEditFont);
       } // Fl_Button* btnMacroEditFont
-      { Fl_Group* o = new Fl_Group(283, 203, 404, 81, gettext("Text Highlighting"));
+      { Fl_Group* o = new Fl_Group(283, 204, 254, 80, gettext("Text Highlighting"));
         o->box(FL_ENGRAVED_FRAME);
         o->align(Fl_Align(FL_ALIGN_TOP|FL_ALIGN_INSIDE));
         { btnXMIT = new Fl_Button(301, 231, 40, 21, gettext("XMIT"));
@@ -10440,12 +10441,6 @@ Fl_Double_Window* ConfigureDialog() {
           btnSEL->align(Fl_Align(FL_ALIGN_BOTTOM));
           btnSEL->color( RGBCOLOR( RxTxSelectcolor ) );
         } // Fl_Button* btnSEL
-        { btnNoTextColor = new Fl_Button(522, 231, 70, 21, gettext("System"));
-          btnNoTextColor->callback((Fl_Callback*)cb_btnNoTextColor);
-        } // Fl_Button* btnNoTextColor
-        { btnTextDefaults = new Fl_Button(596, 231, 70, 21, gettext("Defaults"));
-          btnTextDefaults->callback((Fl_Callback*)cb_btnTextDefaults);
-        } // Fl_Button* btnTextDefaults
         o->end();
       } // Fl_Group* o
       { Fl_Check_Button* o = btn_show_all_codes = new Fl_Check_Button(307, 295, 25, 25, gettext("display Rx control chars as ascii string"));
@@ -10453,6 +10448,12 @@ Fl_Double_Window* ConfigureDialog() {
         btn_show_all_codes->callback((Fl_Callback*)cb_btn_show_all_codes);
         o->value(progdefaults.show_all_codes);
       } // Fl_Check_Button* btn_show_all_codes
+      { btnNoTextColor = new Fl_Button(573, 231, 70, 21, gettext("System"));
+        btnNoTextColor->callback((Fl_Callback*)cb_btnNoTextColor);
+      } // Fl_Button* btnNoTextColor
+      { btnTextDefaults = new Fl_Button(663, 231, 70, 21, gettext("Defaults"));
+        btnTextDefaults->callback((Fl_Callback*)cb_btnTextDefaults);
+      } // Fl_Button* btnTextDefaults
       CONFIG_PAGE *p = new CONFIG_PAGE(o, _("Colors-Fonts/Rx-Tx"));
       config_pages.push_back(p);
       tab_tree->add(_("Colors-Fonts/Rx-Tx"));

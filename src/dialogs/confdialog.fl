@@ -1721,7 +1721,7 @@ progdefaults.changed = true;}
       }
     }
     Fl_Group {} {
-      label {Colors-Fonts/Rx-Tx}
+      label {Colors-Fonts/Rx-Tx} open selected
       xywh {200 0 600 350} box ENGRAVED_BOX align 21 hide
       code0 {CONFIG_PAGE *p = new CONFIG_PAGE(o, _("Colors-Fonts/Rx-Tx"));}
       code1 {config_pages.push_back(p);}
@@ -1822,18 +1822,19 @@ font_browser->show();}
       }
       Fl_Group {} {
         label {Text Highlighting} open
-        xywh {283 203 404 81} box ENGRAVED_FRAME align 17
+        xywh {283 204 254 80} box ENGRAVED_FRAME align 17
       } {
         Fl_Button btnXMIT {
           label XMIT
           callback {TRIAD clr = ui_colors.XMITcolor;
 if (fl_color_chooser("XMIT color", clr.r, clr.g, clr.b )) {
-    btnXMIT->color( RGBCOLOR( XMITcolor ) );
-    btnXMIT->redraw();
-    TransmitText->setFontColor( RGBCOLOR( XMITcolor ), FTextBase::XMIT);
-    ReceiveText->setFontColor( RGBCOLOR( XMITcolor ), FTextBase::XMIT);
+  ui_colors.XMITcolor = clr;
+  btnXMIT->color( RGBCOLOR( XMITcolor ) );
+  btnXMIT->redraw();
+  TransmitText->setFontColor( RGBCOLOR( XMITcolor ), FTextBase::XMIT);
+  ReceiveText->setFontColor( RGBCOLOR( XMITcolor ), FTextBase::XMIT);
 
-    progdefaults.changed = true;}}
+  progdefaults.changed = true;}}
           tooltip {Sent chars in Rx/Tx pane} xywh {301 231 40 21} align 2
           code0 {btnXMIT->color( RGBCOLOR( XMITcolor ) );}
         }
@@ -1890,9 +1891,17 @@ progdefaults.changed = true;}}
           tooltip {Selection background color in Rx Tx panels} xywh {475 231 39 21} align 2
           code0 {btnSEL->color( RGBCOLOR( RxTxSelectcolor ) );}
         }
-        Fl_Button btnNoTextColor {
-          label System
-          callback {TRIAD clr;
+      }
+      Fl_Check_Button btn_show_all_codes {
+        label {display Rx control chars as ascii string}
+        callback {progdefaults.show_all_codes=o->value();
+progdefaults.changed = true;}
+        xywh {307 295 25 25} down_box DOWN_BOX
+        code0 {o->value(progdefaults.show_all_codes);}
+      }
+      Fl_Button btnNoTextColor {
+        label System
+        callback {TRIAD clr;
 
   Fl::get_color( FL_BLACK, clr.r, clr.g, clr.b);
     ui_colors.TxFontcolor = clr;
@@ -1946,11 +1955,11 @@ progdefaults.changed = true;}}
     TransmitText->redraw();
 
     progdefaults.changed = true;}
-          xywh {522 231 70 21}
-        }
-        Fl_Button btnTextDefaults {
-          label Defaults
-          callback {TRIAD clr;
+        xywh {573 231 70 21}
+      }
+      Fl_Button btnTextDefaults {
+        label Defaults
+        callback {TRIAD clr;
 //          uchar r, g, b;
 //    Fl_Color clr;
   Fl::get_color( FL_BLACK, clr.r, clr.g, clr.b );
@@ -2005,15 +2014,7 @@ progdefaults.changed = true;}}
     TransmitText->redraw();
 
     progdefaults.changed = true;}
-          xywh {596 231 70 21}
-        }
-      }
-      Fl_Check_Button btn_show_all_codes {
-        label {display Rx control chars as ascii string}
-        callback {progdefaults.show_all_codes=o->value();
-progdefaults.changed = true;}
-        xywh {307 295 25 25} down_box DOWN_BOX
-        code0 {o->value(progdefaults.show_all_codes);}
+        xywh {663 231 70 21}
       }
     }
     Fl_Group {} {
@@ -10726,7 +10727,7 @@ progdefaults.changed = true;}
       }
     }
     Fl_Group {} {
-      label {Signal Level} open selected
+      label {Signal Level}
       xywh {200 0 600 350} box ENGRAVED_BOX align 21 hide
       code0 {CONFIG_PAGE *p = new CONFIG_PAGE(o, _("Soundcard/Signal Level"));}
       code1 {config_pages.push_back(p);}

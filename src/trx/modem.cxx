@@ -306,6 +306,8 @@ modem::modem()
 void modem::init()
 {
 	stopflag = false;
+	reverse = false;
+
 	if (!wf) return;
 
 	bool wfrev = wf->Reverse();

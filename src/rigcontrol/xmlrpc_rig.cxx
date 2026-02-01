@@ -542,6 +542,7 @@ void flrig_get_mode()
 				} else {
 					xml_USB = true;
 				}
+				if (wf) wf->USB(xml_USB);
 				if (posted) {
 					need_sideband = false;
 					return;

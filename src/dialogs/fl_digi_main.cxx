@@ -280,6 +280,17 @@ void create_status_group ( int X, int Y, int W, int Hstatus)
 		cws_group->hide();
 }
 
+{
+		tx_timer = new Fl_Box(
+			rightof(cntCW_WPM), Y,
+			status_group_A->w(), Hstatus, "");
+		tx_timer->box(FL_DOWN_BOX);
+		tx_timer->color(FL_BACKGROUND_COLOR);
+		tx_timer->labelcolor(FL_BACKGROUND_COLOR);
+		tx_timer->labelsize(FL_NORMAL_SIZE - 1);
+		tx_timer->hide();
+}
+
 		cntTxLevel = new Fl_Counter2(
 			rightof(cws_group), Y,
 			bwTxLevel, Hstatus, "");
@@ -439,14 +450,17 @@ void create_fl_digi_main_primary() {
 			mnu->menu(menu_);
 			toggle_visible_modes(NULL, NULL);
 
-			tx_timer = new Fl_Box(rightof(mnu), 0, 75, Hmenu, "");
-			tx_timer->box(FL_UP_BOX);
-			tx_timer->color(FL_BACKGROUND_COLOR);
-			tx_timer->labelcolor(FL_BACKGROUND_COLOR);
-			tx_timer->labelsize(FL_NORMAL_SIZE - 1);
-			tx_timer->labelfont(lfont);
+			btn_EnableVideo_ID = new Fl_Light_Button(
+				rightof(mnu), 0, 75, Hmenu, "VideoID");
+			btn_EnableVideo_ID->selection_color( RGBCOLOR( SpotColor ) );
+			btn_EnableVideo_ID->callback(cbEnableVideo_ID, 0);
+			btn_EnableVideo_ID->value(progStatus.EnableVideo_ID);
+			btn_EnableVideo_ID->labelsize(FL_NORMAL_SIZE - 1);
+			btn_EnableVideo_ID->labelfont(lfont);
+			btn_EnableVideo_ID->tooltip(_("Enable video ID in transmit signal"));
 
-			btnAutoSpot = new Fl_Light_Button(rightof(tx_timer), 0, 60, Hmenu, "Spot");
+			btnAutoSpot = new Fl_Light_Button(
+				rightof(btn_EnableVideo_ID), 0, 60, Hmenu, "Spot");
 			btnAutoSpot->selection_color( RGBCOLOR( SpotColor ) );
 			btnAutoSpot->callback(cbAutoSpot, 0);
 			btnAutoSpot->deactivate();
@@ -4011,10 +4025,12 @@ void create_fl_digi_main_WF_only() {
 			}
 			mnu->menu(alt_menu_);
 
-			tx_timer = new Fl_Box(W - 275 - pad, 0, 75 - pad, Hmenu, "");
-			tx_timer->box(FL_UP_BOX);
-			tx_timer->color(FL_BACKGROUND_COLOR);
-			tx_timer->labelcolor(FL_BACKGROUND_COLOR);
+			btn_EnableVideo_ID = new Fl_Light_Button(
+				W - 275 - pad, 0, 75 - pad, Hmenu, "Video");
+			btn_EnableVideo_ID->selection_color( RGBCOLOR( SpotColor ) );
+			btn_EnableVideo_ID->callback(cbEnableVideo_ID, 0);
+			btn_EnableVideo_ID->value(progStatus.EnableVideo_ID);
+			btn_EnableVideo_ID->tooltip(_("Enable video ID in transmit signal"));
 
 			btnAutoSpot = new Fl_Light_Button(W - 200 - pad, 0, 50, Hmenu, "Spot");
 			btnAutoSpot->selection_color(RGBCOLOR(SpotColor));

@@ -281,6 +281,7 @@ Fl_Button			*btnDockMacro[48];
 Fl_Menu_Bar 		*mnu;
 
 Fl_Box				*tx_timer = (Fl_Box *)0;
+Fl_Light_Button		*btn_EnableVideo_ID = (Fl_Light_Button *)0;
 Fl_Light_Button		*btnAutoSpot = (Fl_Light_Button *)0;
 Fl_Light_Button		*btnTune = (Fl_Light_Button *)0;
 Fl_Light_Button		*btnRSID = (Fl_Light_Button *)0;
@@ -3133,6 +3134,10 @@ void cbTxRSID(Fl_Widget *w, void*)
 void cbAutoSpot(Fl_Widget* w, void*)
 {
 	progStatus.spot_recv = static_cast<Fl_Light_Button*>(w)->value();
+}
+
+void cbEnableVideo_ID(Fl_Widget* w, void*)
+{	progStatus.EnableVideo_ID = static_cast<Fl_Light_Button*>(w)->value();
 }
 
 void toggleRSID()
@@ -12018,6 +12023,11 @@ void change_menu_fonts( Fl_Font font, int size)
 	btnAutoSpot->labelfont(font);
 	btnAutoSpot->redraw_label();
 	btnAutoSpot->redraw();
+
+	btn_EnableVideo_ID->labelsize(size);
+	btn_EnableVideo_ID->labelfont(font);
+	btn_EnableVideo_ID->redraw_label();
+	btn_EnableVideo_ID->redraw();
 
 	tx_timer->labelsize(size);
 	tx_timer->labelfont(font);

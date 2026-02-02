@@ -792,7 +792,7 @@ void WFdisp::handle_sig_data()
 			fftavg /= WF_BLOCKSIZE;
 			sig_vumeter->value(fftavg);
 			sig_vumeter2->value(fftavg);
-			VuMeter->value(fftavg);
+			if (!tx_timer->visible()) VuMeter->value(fftavg);
 		}
 
 		overload = false;

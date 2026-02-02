@@ -735,6 +735,8 @@ int  modem::tx_process ()
 //------------------------------------------------------------------------------
 void modem::ModulateVideoStereo(double *left, double *right, int len, bool sample_flag)
 {
+	if (!progStatus.EnableVideo_ID) return;
+
 	if (unlikely(!TXscard)) return;
 
 	if(sample_flag)
@@ -772,6 +774,8 @@ void modem::ModulateVideoStereo(double *left, double *right, int len, bool sampl
 
 void modem::ModulateVideo(double *buffer, int len)
 {
+	if (!progStatus.EnableVideo_ID) return;
+
 	if (unlikely(!TXscard)) return;
 
 	tx_sample_count += len;
@@ -814,6 +818,8 @@ void modem::ModulateVideo(double *buffer, int len)
 //------------------------------------------------------------------------------
 void modem::videoText()
 {
+	if (!progStatus.EnableVideo_ID) return;
+
 	if (trx_state == STATE_TUNE)
 		return;
 

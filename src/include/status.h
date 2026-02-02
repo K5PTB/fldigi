@@ -43,6 +43,7 @@ struct status {
 	bool	Rig_Contest_UI;
 	bool	DOCKEDSCOPE;
 	bool	tbar_is_docked;
+	bool	EnableVideo_ID;
 
 //	int		RxTextHeight;
 	int		tiled_group_x;

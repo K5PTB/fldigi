@@ -342,6 +342,7 @@ extern Fl_Light_Button		*btnRSID;
 extern Fl_Light_Button		*btnTxRSID;
 extern Fl_Light_Button		*btnTune;
 extern Fl_Light_Button		*btnAutoSpot;
+extern Fl_Light_Button		*btn_EnableVideo_ID;
 
 extern bool				bWF_only;
 extern int				altMacros;

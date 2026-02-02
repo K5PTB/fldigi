@@ -220,11 +220,13 @@ void show_tx_timer()
 		tx_timer->label(tx_time);
 		tx_timer->redraw_label();
 		tx_timer->redraw();
+		tx_timer->show();
 	} else {
 		tx_timer->color(FL_BACKGROUND_COLOR);
 		tx_timer->labelcolor(FL_BACKGROUND_COLOR);
 		tx_timer->redraw_label();
 		tx_timer->redraw();
+		tx_timer->hide();
 	}
 }
 

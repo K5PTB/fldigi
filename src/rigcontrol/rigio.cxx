@@ -47,6 +47,7 @@
 #include "qrunner.h"
 #include "confdialog.h"
 #include "status.h"
+#include "squelch_status.h"
 
 LOG_FILE_SOURCE(debug::LOG_RIGCONTROL);
 
@@ -134,8 +135,9 @@ xmlrig.ascii = true;
 	if (xmlrig.debug)
 		LOG_INFO("%s", traceinfo);
 
+	memset(replybuff, 0, RXBUFFSIZE + 1);
+
 	if (xmlrig.noserial) {
-		memset(replybuff, 0, RXBUFFSIZE + 1);
 		numread = 0;
 		return true;
 	}
@@ -1007,6 +1009,8 @@ void rigCAT_pttON()
 // send the command
 				for (int n = 0; n < progdefaults.RigCatRetries; n++) {
 					if (rigCAT_exit) return;
+if (xmlrig.debug)
+	LOG_INFO("PTT: %s", strCmd.c_str());
 					guard_lock ser_guard( &rigCAT_mutex );
 					if (sendCommand(symbol, strCmd, rTemp.size, progdefaults.RigCatWait)) return;
 					MilliSleep(50);
@@ -1018,6 +1022,8 @@ void rigCAT_pttON()
 	} else {
 		for (int n = 0; n < progdefaults.RigCatRetries; n++) {
 			if (rigCAT_exit) return;
+if (xmlrig.debug)
+	LOG_INFO("PTT: %s", strCmd.c_str());
 			guard_lock ser_guard( &rigCAT_mutex );
 			if (sendCommand(symbol, strCmd, 0, progdefaults.RigCatWait)) return;
 			MilliSleep(50);
@@ -1064,6 +1070,8 @@ void rigCAT_pttOFF()
 // send the command
 				for (int n = 0; n < progdefaults.RigCatRetries; n++) {
 					if (rigCAT_exit) return;
+if (xmlrig.debug)
+	LOG_INFO("PTT: %s", strCmd.c_str());
 					guard_lock ser_guard( &rigCAT_mutex );
 					if (sendCommand(symbol, strCmd, rTemp.size, progdefaults.RigCatWait)) return;
 					MilliSleep(50);
@@ -1076,6 +1084,8 @@ void rigCAT_pttOFF()
 		for (int n = 0; n < progdefaults.RigCatRetries; n++) {
 			if (rigCAT_exit) return;
 			guard_lock ser_guard( &rigCAT_mutex );
+if (xmlrig.debug)
+	LOG_INFO("PTT: %s", strCmd.c_str());
 			if (sendCommand(symbol, strCmd, 0, progdefaults.RigCatWait)) return;
 			MilliSleep(50);
 		}
@@ -1196,7 +1206,10 @@ bool rigCAT_init()
 	rigio.RTSCTS(progdefaults.RigCatRTSCTSflow);
 	rigio.Stopbits(progdefaults.RigCatStopbits);
 
-	LOG_INFO("\n\
+/*
+char xml_params[500];
+	snprintf(xml_params, 500,
+"\n\
 Serial port parameters:\n\
 device	 : %s\n\
 baudrate   : %d\n\
@@ -1208,8 +1221,8 @@ initial rts: %+d\n\
 use rts ptt: %c\n\
 initial dtr: %+d\n\
 use dtr ptt: %c\n\
+use cmd ptt: %c\n\
 restore tio: %c\n\
-flowcontrol: %c\n\
 echo	   : %c\n",
 		rigio.Device().c_str(),
 		rigio.Baud(),
@@ -1217,11 +1230,17 @@ echo	   : %c\n",
 		progdefaults.RigCatRetries,
 		progdefaults.RigCatTimeout,
 		progdefaults.RigCatWait,
-			(rigio.RTS() ? +12 : -12), (rigio.RTSptt() ? 'T' : 'F'),
-			(rigio.DTR() ? +12 : -12), (rigio.DTRptt() ? 'T' : 'F'),
-			(rigio.RestoreTIO() ? 'T' : 'F'),
-			(rigio.RTSCTS() ? 'T' : 'F'),
-			progdefaults.RigCatECHO ? 'T' : 'F');
+		(rigio.RTS() ? +12 : -12),
+		(rigio.RTSptt() ? 'T' : 'F'),
+		(rigio.DTR() ? +12 : -12),
+		(rigio.DTRptt() ? 'T' : 'F'),
+		(progdefaults.RigCatCMDptt ? 'T' : 'F'),
+		(rigio.RestoreTIO() ? 'T' : 'F'),
+		progdefaults.RigCatECHO ? 'T' : 'F');
+
+std::cout << xml_params;
+	LOG_INFO("%s", xml_params);
+*/
 
 	if (xmlrig.noserial == false && xmlrig.xmlok) {
 		if (rigio.OpenPort() == false) {
@@ -1248,15 +1267,18 @@ echo	   : %c\n",
 	if (xmlrig.noserial)
 		rigCAT_getfreq(1, failed, 0);
 	else if (xmlrig.xmlok) {
-		rigCAT_getfreq(3, failed, progdefaults.RigCatInitDelay);
+		unsigned long long xcvr_freq = rigCAT_getfreq(3, failed, progdefaults.RigCatInitDelay);
 
 		if (failed) {
 			LOG_ERROR("*****************Failed to read xcvr frequency");
 			if (xmlrig.noserial == false)
 				rigio.ClosePort();
 			xmlrig.xmlok = false;
-		} else
+		} else {
 			LOG_INFO("Passed serial port test");
+			wf->rfcarrier(xcvr_freq);
+//			modeband.band_mode_change();
+		}
 	}
 
 	if (pthread_create(&rigCAT_thread, NULL, rigCAT_loop, NULL) < 0) {

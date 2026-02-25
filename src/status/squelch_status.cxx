@@ -366,7 +366,7 @@ void show_band_mode_change()
 	os << "\n" <<
 "    band ..... " << modeband.band_name() << "\n" <<
 "    mode ..... " << mode_info[active_modem->get_mode()].name << "\n" <<
-"    txlevel .. " << progdefaults.txlevel_by_mode << " / " << progStatus.txlevel << "\n" <<
+"    txlevel .. " << (progdefaults.txlevel_by_mode ? "true" : "false")  << " / " << progStatus.txlevel << "\n" <<
 "    reverse .. " << (progStatus.reverse ? "true" : "false") << "\n" <<
 "    afc ...... " << (progdefaults.afc_by_mode ? "true" : "false") << " / " << progStatus.afconoff << "\n" <<
 "    squelch .. " << (progdefaults.sqlch_by_mode ? "true" : "false") << " / " << progStatus.sldrSquelchValue << "\n";

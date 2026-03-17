@@ -1,5 +1,5 @@
 # data file for the Fltk User Interface Designer (fluid)
-version 1.0403
+version 1.0404
 i18n_type 1
 i18n_include {"gettext.h"}
 i18n_conditional {}
@@ -134,6 +134,9 @@ decl {\#include "ui_colors.h"} {private local
 }
 
 decl {\#include "wefax.h"} {private local
+}
+
+decl {\#include "qrss.h"} {private local
 }
 
 decl {\#if USE_HAMLIB
@@ -505,7 +508,7 @@ static const char szBaudRates[] = "300|600|1200|2400|4800|9600|19200|38400|57600
 static const char szProsigns[] = "~|%|&|+|=|{|}|<|>|[|]| ";} {}
   Fl_Window {} {
     label {Fldigi configuration} open
-    xywh {853 25 801 380} type Double color 45 selection_color 51 labelsize 18 align 80 resizable size_range {750 380 0 380} visible
+    xywh {853 28 801 380} type Double color 45 selection_color 51 labelsize 18 align 80 resizable size_range {750 380 0 380} visible
   } {
     Fl_Group {} {open
       xywh {0 0 201 380} resizable
@@ -1721,7 +1724,7 @@ progdefaults.changed = true;}
       }
     }
     Fl_Group {} {
-      label {Colors-Fonts/Rx-Tx} open selected
+      label {Colors-Fonts/Rx-Tx}
       xywh {200 0 600 350} box ENGRAVED_BOX align 21 hide
       code0 {CONFIG_PAGE *p = new CONFIG_PAGE(o, _("Colors-Fonts/Rx-Tx"));}
       code1 {config_pages.push_back(p);}
@@ -5398,19 +5401,19 @@ WPM .  Set WPM to nominal (suggest 20 WPM).
 
 Compensation will be good over a +/- 10 WPM range.  Calibration/Test is 1 minute of
 'PARIS '.}
-        xywh {210 33 575 118} box ENGRAVED_BOX color 53 labelsize 13 align 20
+        xywh {200 0 575 118} box ENGRAVED_BOX color 53 labelsize 13 align 20
       }
       Fl_Button btn_CAT_keying_calibrate {
         label Calibrate
         callback {CAT_keying_calibrate();}
-        tooltip {Send WPM 'PARIS ' words} xywh {245 184 80 22}
+        tooltip {Send WPM 'PARIS ' words} xywh {200 0 80 22}
         code0 {extern void CAT_keying_calibrate();}
       }
       Fl_Value_Input out_CATkeying_compensation {
         label {Compensate (secs)}
         callback {progdefaults.CATkeying_compensation = o->value() * 1000;
 progdefaults.changed=true;}
-        xywh {329 184 50 22} align 8 maximum 10 step 0.01
+        xywh {200 0 50 22} align 8 maximum 10 step 0.01
         code0 {o->value(progdefaults.CATkeying_compensation / 1000.0);}
       }
       Fl_Button btn_CAT_keying_clear {
@@ -5418,18 +5421,90 @@ progdefaults.changed=true;}
         callback {progdefaults.CATkeying_compensation = 0;
 out_CATkeying_compensation->value(0);
 out_CATkeying_test_result->value(0);}
-        tooltip {Clear compensation} xywh {525 184 50 22}
+        tooltip {Clear compensation} xywh {200 0 50 22}
       }
       Fl_Button btn_CAT_keying_test {
         label Test
         callback {CAT_keying_test();}
-        tooltip {Send WPM 'PARIS ' words} xywh {589 184 50 22}
+        tooltip {Send WPM 'PARIS ' words} xywh {200 0 50 22}
         code0 {extern void CAT_keying_test();}
       }
       Fl_Value_Input out_CATkeying_test_result {
         label secs
-        xywh {645 184 50 22} align 8 maximum 10 step 0.01
+        xywh {200 0 50 22} align 8 maximum 10 step 0.01
         code0 {o->value(0);}
+      }
+    }
+    Fl_Group {} {
+      label {Modem/Contestia}
+      xywh {200 0 600 350} box ENGRAVED_BOX align 21 hide
+      code0 {CONFIG_PAGE *p = new CONFIG_PAGE(o, _("Modem/Contestia"));}
+      code1 {config_pages.push_back(p);}
+      code2 {tab_tree->add(_("Modem/Contestia"));}
+    } {
+      Fl_Group {} {open
+        xywh {257 40 490 240} box ENGRAVED_FRAME
+      } {
+        Fl_Group i_listbox_contestia_bandwidth {
+          label Bandwidth
+          callback {progdefaults.contestiabw = o->index();
+set_contestia_default_integ();
+resetCONTESTIA();
+progdefaults.changed = true;} open
+          tooltip {Select bandwidth} xywh {312 60 85 22} box DOWN_BOX color 7 align 8
+          code0 {o->add(szContestiaBandwidth);}
+          code1 {o->index(progdefaults.contestiabw);}
+          code2 {o->labelsize(FL_NORMAL_SIZE);}
+          class Fl_ListBox
+        } {}
+        Fl_Group i_listbox_contestia_tones {
+          label Tones
+          callback {progdefaults.contestiatones = o->index();
+set_contestia_default_integ();
+resetCONTESTIA();
+progdefaults.changed = true;} open
+          tooltip {Select number of tones} xywh {573 60 70 22} box DOWN_BOX color 7 align 8
+          code0 {o->add(szContestiaTones);}
+          code1 {o->index(progdefaults.contestiatones);}
+          code2 {o->labelsize(FL_NORMAL_SIZE);}
+          class Fl_ListBox
+        } {}
+        Fl_Group {} {
+          label {Receive synchronizer} open
+          xywh {295 99 414 101} box ENGRAVED_FRAME align 21
+        } {
+          Fl_Counter cntContestia_smargin {
+            label {Tune margin (tone frequency spacing)}
+            callback {progdefaults.contestiasmargin = (int)(o->value());
+resetCONTESTIA();
+progdefaults.changed = true;}
+            tooltip {Change ONLY to experiment} xywh {314 130 70 22} type Simple align 8 minimum 2 maximum 128 step 1 value 8
+            code0 {o->labelsize(FL_NORMAL_SIZE);}
+            class Fl_Counter2
+          }
+          Fl_Counter cntContestia_sinteg {
+            label {Integration period (FEC blocks)}
+            callback {progdefaults.contestiasinteg = (int)(o->value());
+resetCONTESTIA();
+progdefaults.changed = true;}
+            tooltip {Change ONLY to experiment} xywh {314 162 70 22} type Simple align 8 minimum 2 maximum 128 step 1 value 4
+            code0 {o->labelsize(FL_NORMAL_SIZE);}
+            class Fl_Counter2
+          }
+        }
+        Fl_Check_Button btnContestia_8bit {
+          label {8-bit extended characters}
+          callback {progdefaults.contestia8bit = o->value();
+progdefaults.changed = true;}
+          tooltip {Enable this for Latin-1 accented characters} xywh {312 209 200 20} down_box DOWN_BOX
+        }
+        Fl_Check_Button btnContestia_start_stop_tones {
+          label {xmt start/stop tones}
+          callback {progdefaults.contestia_start_tones = o->value();
+progdefaults.changed = true;}
+          tooltip {Enable this to send start/stop tones} xywh {312 240 265 20} down_box DOWN_BOX
+          code0 {o->value(progdefaults.contestia_start_tones);}
+        }
       }
     }
     Fl_Group {} {
@@ -6432,78 +6507,6 @@ progdefaults.changed = true;}
       }
     }
     Fl_Group {} {
-      label {Modem/Contestia}
-      xywh {200 0 600 350} box ENGRAVED_BOX align 21 hide
-      code0 {CONFIG_PAGE *p = new CONFIG_PAGE(o, _("Modem/Contestia"));}
-      code1 {config_pages.push_back(p);}
-      code2 {tab_tree->add(_("Modem/Contestia"));}
-    } {
-      Fl_Group {} {open
-        xywh {257 40 490 240} box ENGRAVED_FRAME
-      } {
-        Fl_Group i_listbox_contestia_bandwidth {
-          label Bandwidth
-          callback {progdefaults.contestiabw = o->index();
-set_contestia_default_integ();
-resetCONTESTIA();
-progdefaults.changed = true;} open
-          tooltip {Select bandwidth} xywh {312 60 85 22} box DOWN_BOX color 7 align 8
-          code0 {o->add(szContestiaBandwidth);}
-          code1 {o->index(progdefaults.contestiabw);}
-          code2 {o->labelsize(FL_NORMAL_SIZE);}
-          class Fl_ListBox
-        } {}
-        Fl_Group i_listbox_contestia_tones {
-          label Tones
-          callback {progdefaults.contestiatones = o->index();
-set_contestia_default_integ();
-resetCONTESTIA();
-progdefaults.changed = true;} open
-          tooltip {Select number of tones} xywh {573 60 70 22} box DOWN_BOX color 7 align 8
-          code0 {o->add(szContestiaTones);}
-          code1 {o->index(progdefaults.contestiatones);}
-          code2 {o->labelsize(FL_NORMAL_SIZE);}
-          class Fl_ListBox
-        } {}
-        Fl_Group {} {
-          label {Receive synchronizer} open
-          xywh {295 99 414 101} box ENGRAVED_FRAME align 21
-        } {
-          Fl_Counter cntContestia_smargin {
-            label {Tune margin (tone frequency spacing)}
-            callback {progdefaults.contestiasmargin = (int)(o->value());
-resetCONTESTIA();
-progdefaults.changed = true;}
-            tooltip {Change ONLY to experiment} xywh {314 130 70 22} type Simple align 8 minimum 2 maximum 128 step 1 value 8
-            code0 {o->labelsize(FL_NORMAL_SIZE);}
-            class Fl_Counter2
-          }
-          Fl_Counter cntContestia_sinteg {
-            label {Integration period (FEC blocks)}
-            callback {progdefaults.contestiasinteg = (int)(o->value());
-resetCONTESTIA();
-progdefaults.changed = true;}
-            tooltip {Change ONLY to experiment} xywh {314 162 70 22} type Simple align 8 minimum 2 maximum 128 step 1 value 4
-            code0 {o->labelsize(FL_NORMAL_SIZE);}
-            class Fl_Counter2
-          }
-        }
-        Fl_Check_Button btnContestia_8bit {
-          label {8-bit extended characters}
-          callback {progdefaults.contestia8bit = o->value();
-progdefaults.changed = true;}
-          tooltip {Enable this for Latin-1 accented characters} xywh {312 209 200 20} down_box DOWN_BOX
-        }
-        Fl_Check_Button btnContestia_start_stop_tones {
-          label {xmt start/stop tones}
-          callback {progdefaults.contestia_start_tones = o->value();
-progdefaults.changed = true;}
-          tooltip {Enable this to send start/stop tones} xywh {312 240 265 20} down_box DOWN_BOX
-          code0 {o->value(progdefaults.contestia_start_tones);}
-        }
-      }
-    }
-    Fl_Group {} {
       label {Modem/Olivia}
       xywh {200 0 600 350} box ENGRAVED_BOX align 21 hide
       code0 {CONFIG_PAGE *p = new CONFIG_PAGE(o, _("Modem/Olivia"));}
@@ -6682,6 +6685,143 @@ progdefaults.changed = true;}
           tooltip {Enable short preamble for 8PSK transmission} xywh {610 286 113 20} down_box DOWN_BOX
           code0 {o->value(progStatus.psk8DCDShortFlag);}
         }
+      }
+    }
+    Fl_Group {} {
+      label {Modem/QRSS} open selected
+      xywh {200 0 600 350} box ENGRAVED_BOX align 21 hide
+      code0 {CONFIG_PAGE *p = new CONFIG_PAGE(o, _("Modem/QRSS"));}
+      code1 {config_pages.push_back(p);}
+      code2 {tab_tree->add(_("Modem/QRSS"));}
+    } {
+      Fl_Group {} {open
+        xywh {220 35 564 50} box ENGRAVED_BOX
+      } {
+        Fl_Check_Button btnCW_qrss {
+          label {CW QRSS}
+          callback {if (o->value() == true) {
+  qrss_prefs.CW_qrss=true;
+  qrss_prefs.FM_qrss = false;
+  qrss_prefs.DFCW_qrss = false;
+  btnFM_qrss->value(0);
+  btnDFCW_qrss->value(0);
+  progdefaults.changed = true;
+}
+else
+  o->value(1);}
+          tooltip {Enable QRSS transmission using audio tone} xywh {233 45 120 22} down_box DOWN_BOX
+          code0 {o->value(qrss_prefs.CW_qrss);}
+        }
+        Fl_Counter cntCW_qrss {
+          label {Dot Duration (secs)}
+          callback {qrss_prefs.QRSS_DOT = o->value();
+progdefaults.changed = true;}
+          xywh {360 45 120 22} minimum 0.1 maximum 100 value 1
+          code0 {o->value(qrss_prefs.QRSS_DOT);}
+          code1 {o->labelsize(FL_NORMAL_SIZE);}
+          code2 {o->lstep(1);}
+        }
+        Fl_Counter cnt_QRSS_ENV_MSEC {
+          label {Rise time (msec)}
+          callback {qrss_prefs.QRSS_ENV_MSEC= o->value();
+progdefaults.changed = true;}
+          xywh {528 45 75 22} type Simple minimum 0 maximum 20 step 1
+          code0 {o->value(qrss_prefs.QRSS_ENV_MSEC);}
+        }
+      }
+      Fl_Group {} {open
+        xywh {220 90 564 50} box ENGRAVED_BOX
+      } {
+        Fl_Check_Button btnFM_qrss {
+          label {FM QRSS}
+          callback {if (o->value() == true) {
+  qrss_prefs.FM_qrss=true;
+  qrss_prefs.CW_qrss = false;
+  qrss_prefs.DFCW_qrss = false;
+  btnCW_qrss->value(0);
+  btnDFCW_qrss->value(0);
+  progdefaults.changed = true;
+}
+else
+  o->value(1);}
+          tooltip {Enable QRSS transmission using FM audio tone} xywh {233 100 122 22} down_box DOWN_BOX
+          code0 {o->value(qrss_prefs.FM_qrss);}
+        }
+        Fl_Counter cnt_QRSS_FM_SHIFT {
+          label {FM shift (Hertz)}
+          callback {qrss_prefs.QRSS_FM_SHIFT= o->value();
+progdefaults.changed = true;}
+          xywh {362 100 122 22} minimum 4 maximum 200 step 1
+          code0 {o->value(qrss_prefs.QRSS_FM_SHIFT);}
+          code1 {o->lstep(10);}
+        }
+      }
+      Fl_Group {} {open
+        xywh {220 145 564 100} box ENGRAVED_BOX
+      } {
+        Fl_Check_Button btnDFCW_qrss {
+          label {DFCW QRSS}
+          callback {if (o->value() == true) {
+  qrss_prefs.DFCW_qrss=true;
+  qrss_prefs.CW_qrss = false;
+  qrss_prefs.FM_qrss = false;
+  btnCW_qrss->value(0);
+  btnFM_qrss->value(0);
+  progdefaults.changed = true;
+}
+else
+  o->value(1);}
+          tooltip {Enable QRSS transmission using FM audio tone} xywh {233 150 120 22} down_box DOWN_BOX value 1
+          code0 {o->value(qrss_prefs.DFCW_qrss);}
+        }
+        Fl_Counter cnt_QRSS_DFCW_DOT_SHIFT {
+          label {DOT freq (Hertz)}
+          callback {qrss_prefs.QRSS_DFCW_DOT_SHIFT= o->value();
+progdefaults.changed = true;}
+          xywh {360 150 120 22} minimum 100 maximum 1000 step 1 value 880
+          code0 {o->value(qrss_prefs.QRSS_DFCW_DOT_SHIFT);}
+          code1 {o->lstep(10);}
+        }
+        Fl_Counter cnt_QRSS_DFCW_DASH_SHIFT {
+          label {DASH freq (Hertz)}
+          callback {qrss_prefs.QRSS_DFCW_DASH_SHIFT= o->value();
+progdefaults.changed = true;}
+          xywh {505 150 120 22} minimum 100 maximum 1000 step 1 value 523
+          code0 {o->value(qrss_prefs.QRSS_DFCW_DASH_SHIFT);}
+          code1 {o->lstep(10);}
+        }
+        Fl_Counter cnt_QRSS_DFCW_KEYUP_SHIFT {
+          label {KEY UP freq (Hertz)}
+          callback {qrss_prefs.QRSS_DFCW_KEYUP_SHIFT= o->value();
+progdefaults.changed = true;}
+          xywh {650 150 120 22} minimum 100 maximum 1000 step 1 value 440
+          code0 {o->value(qrss_prefs.QRSS_DFCW_KEYUP_SHIFT);}
+          code1 {o->lstep(10);}
+        }
+        Fl_Counter cnt_QRSS_DFCW_ELEMENT_LEN {
+          label {Element len (sec)}
+          callback {qrss_prefs.QRSS_DFCW_ELEMENT_LEN= o->value();
+progdefaults.changed = true;}
+          xywh {360 196 120 22} minimum 0.25 maximum 10 step 0.05 value 1
+          code0 {o->value(qrss_prefs.QRSS_DFCW_ELEMENT_LEN);}
+          code1 {o->lstep(1);}
+        }
+        Fl_Counter cnt_QRSS_DFCW_KEYUP_LEN {
+          label {Key Up length (sec)}
+          callback {qrss_prefs.QRSS_DFCW_KEYUP_LEN= o->value();
+progdefaults.changed = true;}
+          xywh {650 196 120 22} minimum 0.1 maximum 1 step 0.05 value 0.25
+          code0 {o->value(qrss_prefs.QRSS_DFCW_KEYUP_LEN);}
+          code1 {o->lstep(1);}
+        }
+      }
+      Fl_Box {} {
+        label {  CW      - very slow on/off Morse code
+  FM       - very slow two tone Morse, Dot low, Dash high frequency
+  DFCW - very slow three tone Morse, Interelement space (key up) low tone,
+                Dot - high tone
+                Dash - middle tone;  440 / 523 / 880 are musically related}
+        xywh {227 250 550 92} align 21
       }
     }
     Fl_Group {} {
@@ -12355,6 +12495,9 @@ progdefaults.changed = true;}
     }
   }
 }
+
+Function {make_window()} {open
+} {}
 
 Function {openConfig()} {return_type void
 } {

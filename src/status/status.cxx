@@ -83,6 +83,8 @@
 
 #include "ui_colors.h"
 
+#include "qrss.h"
+
 #define STATUS_FILENAME "status"
 
 status progStatus = {
@@ -169,6 +171,24 @@ status progStatus = {
 	false,				// bool	x_graticule;
 	false,				// bool	y_graticule;
 	true,				// bool	xy_graticule;
+
+	100,				// int hwf_x;
+	100,				// int hwf_y;
+	true,				// bool show_rf_labels;
+	60.0,				// double hwfall_viewer_range;
+	0.0,				// double hwfall_viewer_min_db;
+	8,					// int hwfall_palette;
+	2,					// int hwfall_average_selection;
+	1.0,				// double hwfall_waterfall_rate;
+	600,				// double hwfall_center_freq;
+	1,					// int hwfall_scale;
+	400,				// int hwfall_num_bins;
+	6,					// int hwfall_num_slices;
+	0,					// int hwfall_averaging;
+	3,					// int hwfall_nblocks;
+	1,					// int hwfall_fft_window;
+	0,					// bool fft_select;
+	1,					// bool graticule_on_off;
 
 	-1,					// int	repeatMacro;
 	0,					// float	repeatIdleTime;
@@ -625,6 +645,24 @@ if (!bWF_only) {
 	spref.set("y_graticule", y_graticule);
 	spref.set("xy_graticule", xy_graticule);
 
+	spref.set("hwf_x", hwf_x);
+	spref.set("hwf_y", hwf_y);
+	spref.set("show_rf_labels", show_rf_labels);
+	spref.set("hwfall_viewer_range", hwfall_viewer_range);
+	spref.set("hwfall_viewer_min_db", hwfall_viewer_min_db);
+	spref.set("hwfall_palette", hwfall_palette);
+	spref.set("hwfall_average_selection", hwfall_average_selection);
+	spref.set("hwfall_waterfall_rate", hwfall_waterfall_rate);
+	spref.set("hwfall_center_freq", hwfall_center_freq);
+	spref.set("hwfall_scale", hwfall_scale);
+	spref.set("hwfall_num_bins", hwfall_num_bins);
+	spref.set("hwfall_num_slices", hwfall_num_slices);
+	spref.set("hwfall_averaging", hwfall_averaging);
+	spref.set("hwfall_nblocks", hwfall_nblocks);
+	spref.set("hwfall_fft_window", hwfall_fft_window);
+	spref.set("fft_select", fft_select);
+	spref.set("graticule_on_off", graticule_on_off);
+
 	spref.set("last_macro_file", LastMacroFile.c_str());
 
 	spref.set("default_frequencies_filename", default_frequencies_filename.c_str());
@@ -799,6 +837,8 @@ if (!bWF_only) {
 	UI_STATS(__func__);
 
 	modeband.save_mode_state();
+
+	save_qrss_prefs();
 }
 
 void status::loadLastState()
@@ -960,6 +1000,24 @@ void status::loadLastState()
 	spref.get("x_graticule", i, x_graticule); x_graticule = i;
 	spref.get("y_graticule", i, y_graticule); y_graticule = i;
 	spref.get("xy_graticule",i, xy_graticule); xy_graticule = i;
+
+	spref.get("hwf_x", hwf_x, hwf_x);
+	spref.get("hwf_y", hwf_y, hwf_y);
+	spref.get("show_rf_labels", show_rf_labels, show_rf_labels);
+	spref.get("hwfall_viewer_range", hwfall_viewer_range, hwfall_viewer_range);
+	spref.get("hwfall_viewer_min_db", hwfall_viewer_min_db, hwfall_viewer_min_db);
+	spref.get("hwfall_palette", hwfall_palette, hwfall_palette);
+	spref.get("hwfall_average_selection", hwfall_average_selection, hwfall_average_selection);
+	spref.get("hwfall_waterfall_rate", hwfall_waterfall_rate, hwfall_waterfall_rate);
+	spref.get("hwfall_center_freq", hwfall_center_freq, hwfall_center_freq);
+	spref.get("hwfall_scale", hwfall_scale, hwfall_scale);
+	spref.get("hwfall_num_bins", hwfall_num_bins, hwfall_num_bins);
+	spref.get("hwfall_num_slices", hwfall_num_slices, hwfall_num_slices);
+	spref.get("hwfall_averaging", hwfall_averaging, hwfall_averaging);
+	spref.get("hwfall_nblocks", hwfall_nblocks, hwfall_nblocks);
+	spref.get("hwfall_fft_window", hwfall_fft_window, hwfall_fft_window);
+	spref.get("fft_select", fft_select, fft_select);
+	spref.get("graticule_on_off", graticule_on_off, graticule_on_off);
 
 	memset(strbuff, 0, sizeof(strbuff));
 	spref.get("last_macro_file", strbuff, "macros.mdf", sizeof(strbuff) - 1);
@@ -1172,6 +1230,7 @@ void status::loadLastState()
 
 	load_udp_prefs();
 	load_cloud_prefs();
+	load_qrss_prefs();
 
 	ui_colors.load("fldigi_UI_colors");
 

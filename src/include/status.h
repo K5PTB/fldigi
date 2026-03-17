@@ -113,6 +113,24 @@ struct status {
 	bool	y_graticule;
 	bool	xy_graticule;
 
+	int		hwf_x; // hwf_viewer X, Y
+	int		hwf_y;
+	int		show_rf_labels;
+	double	hwfall_viewer_range;
+	double	hwfall_viewer_min_db;
+	int		hwfall_palette;
+	int		hwfall_average_selection;
+	double	hwfall_waterfall_rate;
+	double	hwfall_center_freq;
+	int		hwfall_scale;
+	int		hwfall_num_bins;
+	int		hwfall_num_slices;
+	int		hwfall_averaging;
+	int		hwfall_nblocks;
+	int		hwfall_fft_window;
+	int		fft_select;
+	int		graticule_on_off;
+
 	int		repeatMacro;
 	float	repeatIdleTime;
 	int		timer;

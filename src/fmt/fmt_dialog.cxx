@@ -81,10 +81,6 @@ static const char *legend_2p =
 	"-2.0|-1.5|-1.0|-0.5|0|0.5|1.0|1.5|2.0";
 static const char *legend_4p =
 	"-4.0|-3.5|-3.0|-2.5|-2.0|-1.5|-1.0|-0.5|0|0.5|1.0|1.5|2.0|2.5|3.0|3.5|4.0";
-static const char *legend_5p =
-	"5.0|-4.0|-3.0|-2.0|-1.0|0|1.0|2.0|3.0|4.0|5.0";
-static const char *legend_10p =
-	"-10.0|-8.0|-6.0|-4.0|-2.0|0|2.0|4.0|6.0|8.0|10.0";
 
 static const char *legend_5   = " |4|3|2|1| |";
 static const char *legend_15  = " |14|13|12|11|10|9|8|7|6|5|4|3|2|1| |";
@@ -94,10 +90,8 @@ static const char *legend_120 = " |110|100|90|80|70|60|50|40|30|20|10| |";
 static const char *legend_4h  = " |3.5|3.0|2.5|2.0|1.5|1.0|0.5| |";
 static const char *legend_8h  = " |7.5|7.0|6.5|6.0|5.5|5.0|4.5|4.0|3.5|3.0|2.5|2.0|1.5|1.0|0.5| |";
 static const char *legend_16h = " |15|14|13|12|11|10|9|8|7|6|5|4|3|2|1| |";
-static const char *legend_24h = " |23|22|21|20|19|18|17|16|15|14|13|12|11|10|9|8|7|6|5|4|3|2|1| |";
-static const char *legend_48h = " |46|44|42|40|38|36|34|32|30|28|26|24|22|20|18|16|14|12|10|8|6|4|2| |";
 
-static int seconds[] = {300, 900, 1800, 3600, 7200, 14400, 28800, 57600, 86400, 172800};
+static int seconds[] = { 300, 900, 1800, 3600, 7200, 14400, 28800, 57600 };
 
 void cb_unk_up(void *)
 {
@@ -160,8 +154,6 @@ void fmt_set_x_scale()
 	const char *legend = NULL;
 
 	switch (progStatus.FMT_minutes) {
-		case 9: minutes = 2880; markers = 24; legend = legend_48h; break;
-		case 8: minutes = 1440; markers = 24; legend = legend_24h; break;
 		case 7: minutes = 960; markers = 16; legend = legend_16h; break;
 		case 6: minutes = 480; markers = 16; legend = legend_8h; break;
 		case 5: minutes = 240; markers = 8; legend = legend_4h; break;
@@ -215,14 +207,6 @@ void fmt_set_y_scale()
 		case 7 :
 			fmt_plot->y_scale(-4.0, 4.0, 16);
 			fmt_plot->set_y_legend(legend_4p);
-			break;
-		case 8 :
-			fmt_plot->y_scale(-5.0, 5.0, 10);
-			fmt_plot->set_y_legend(legend_5p);
-			break;
-		case 9 :
-			fmt_plot->y_scale(-10.0, 10.0, 10);
-			fmt_plot->set_y_legend(legend_10p);
 			break;
 		default:
 			fmt_plot->y_scale(-1.0, 1.0, 10);
@@ -460,8 +444,6 @@ Fl_Group* fmt_panel(int X, int Y, int W, int H) {
 			fmt_cntr_minutes->add("4 hr");
 			fmt_cntr_minutes->add("8 hr");
 			fmt_cntr_minutes->add("16 hr");
-			fmt_cntr_minutes->add("24 hr");
-			fmt_cntr_minutes->add("48 hr");
 			fmt_cntr_minutes->color(FL_WHITE);
 			fmt_cntr_minutes->index(progStatus.FMT_minutes);
 			fmt_cntr_minutes->callback((Fl_Callback *)fmt_cntr_minutes_cb);
@@ -530,7 +512,7 @@ void cb_unk_reset (void *) {
 
 void cb_unk_clear (void *) {
 	fmt_modem->clear_unk_pipe();
-	fmt_plot->data_1(NULL, 0);
+	fmt_plot->clear(1);
 	fmt_plot->redraw();
 }
 
@@ -540,7 +522,7 @@ void cb_ref_reset (void *) {
 
 void cb_ref_clear (void *) {
 	fmt_modem->clear_ref_pipe();
-	fmt_plot->data_2(NULL, 0);
+	fmt_plot->clear(2);
 	fmt_plot->redraw();
 }
 

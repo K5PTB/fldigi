@@ -21,26 +21,23 @@
 #ifndef plot_xy_H
 #define plot_xy_H
 
+#include <vector>
+
 #include <FL/Fl.H>
 #include <FL/fl_draw.H>
 #include <FL/Fl_Widget.H>
 
 #include "threads.h"
 
-struct PLOT_XY {double x; double y;};
+struct PLOT_XY {float x; float y;};//{double x; double y;};
 
 class plot_xy : public Fl_Widget {
 
 public:
 
-#define PLOT_XY_DEFAULT_WIDTH	100
-#define PLOT_XY_DEFAULT_HEIGHT	100
-#define	PLOT_XY_MAX_LEN			172800 //8192
-#define PLOT_XY_NUM_GRIDS		100
-
 private:
-	PLOT_XY *buf_1;
-	PLOT_XY *buf_2;
+	std::vector<PLOT_XY> buf_1;
+	std::vector<PLOT_XY> buf_2;
 
 	int _len_1;
 	int _len_2;
@@ -48,6 +45,7 @@ private:
 	bool xreverse;
 	bool x_legend;
 	bool y_legend;
+	bool borders;
 
 	std::string sx_legend;
 	std::string sy_legend;
@@ -78,6 +76,8 @@ public:
 
 	void draw();
 
+	void clear(int);
+
 	void data_1 (PLOT_XY *data_1, int len_1);
 	void data_2 (PLOT_XY *data_2, int len_2);
 
@@ -103,6 +103,10 @@ public:
 	void legends(bool on = true) {
 		x_legend = on;
 		y_legend = on;
+	}
+
+	void set_borders(bool on = false) {
+		borders = on;
 	}
 
 	void set_x_legend(std::string legend) {

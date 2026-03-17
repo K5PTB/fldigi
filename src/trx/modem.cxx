@@ -205,6 +205,8 @@ modem *contestia_64_500_modem = 0;
 modem *contestia_64_1000_modem = 0;
 modem *contestia_64_2000_modem = 0;
 
+modem *qrss_modem = 0;
+
 modem *rtty_modem = 0;
 
 modem *scampfsk_modem = 0;

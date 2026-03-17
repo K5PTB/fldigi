@@ -422,6 +422,8 @@ extern modem *psk500r_c2_modem;
 extern modem *psk500r_c3_modem;
 extern modem *psk500r_c4_modem;
 
+extern modem *qrss_modem;
+
 extern modem *rtty_modem;
 
 extern modem *scampfsk_modem;

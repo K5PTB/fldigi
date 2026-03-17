@@ -1302,7 +1302,6 @@ void flrig_cwio_send_text(std::string s)
 	XmlRpcValue val, result;
 	try {
 		guard_lock flrig_lock(&mutex_flrig);
-std::cout << "rig.cwio_text '" << s << "'" << std::endl;
 		val = std::string(s);
 		flrig_client->execute("rig.cwio_text", val, result, 0.20);//timeout);
 	} catch (...) {
@@ -1318,6 +1317,19 @@ void flrig_fskio_send_text(std::string s)
 		guard_lock flrig_lock(&mutex_flrig);
 		val = std::string(s);
 		flrig_client->execute("rig.fskio_text", val, result, 0.20);
+	} catch (...) {
+	}
+	return;
+}
+
+void flrig_key_state(int down)
+{
+	if (!connected_to_flrig) return;
+	XmlRpcValue val, result;
+	try {
+		guard_lock flrig_lock(&mutex_flrig);
+		val = (int)down;
+		flrig_client->execute("rig.cwio_key", val, result, 0.20);
 	} catch (...) {
 	}
 	return;

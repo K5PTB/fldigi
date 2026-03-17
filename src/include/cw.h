@@ -37,6 +37,7 @@
 #include "filters.h"
 #include "fftfilt.h"
 #include "mbuffer.h"
+#include "serial.h"
 
 #include "view_cw.h"
 
@@ -255,6 +256,7 @@ public:
 
 extern bool CW_table_changed;
 
+extern Cserial CW_KEYLINE_serial;
 extern bool CW_KEYLINE_isopen;
 extern void close_CW_KEYLINE();
 extern int open_CW_KEYLINE();

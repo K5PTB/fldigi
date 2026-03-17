@@ -421,7 +421,7 @@ FLDIGI_FL_SRC = \
 		dialogs/testsigs.fl \
 		logbook/lgbook.fl \
 		logbook/fd_view.fl \
-		dxcluster/dx_dialog.fl
+		dxcluster/dx_dialog.fl 
 FLARQ_FL_SRC = flarq-src/arqdialogs.fl
 
 if HAVE_FLUID
@@ -647,6 +647,8 @@ fldigi_SOURCES += \
 	psk/viewpsk.cxx \
 	psm/psm.cxx \
 	psm/psm.h \
+	qrss/qrss.cxx \
+	waterfall/hwfall_viewer.cxx \
 	qrunner/fqueue.h \
 	qrunner/qrunner.cxx \
 	rigcontrol/FreqControl.cxx \
@@ -686,6 +688,7 @@ fldigi_SOURCES += \
 	trx/trx.cxx \
 	waterfall/colorbox.cxx \
 	waterfall/digiscope.cxx \
+	waterfall/hwfall.cxx \
 	waterfall/raster.cxx \
 	waterfall/waterfall.cxx \
 	wefax/wefax.cxx \
@@ -895,6 +898,8 @@ EXTRA_fldigi_SOURCES += \
 	include/pskvaricode.h \
 	include/ptt.h \
 	include/pwrmeter.h \
+	include/qrss.h \
+	include/hwfall_viewer.h \
 	include/qrunner.h \
 	include/qrzlib.h \
 	include/qso_db.h \
@@ -954,6 +959,7 @@ EXTRA_fldigi_SOURCES += \
 	include/view_scamp.h \
 	include/viterbi.h \
 	include/waterfall.h \
+	include/hwfall.h \
 	include/weather.h \
 	include/wefax.h \
 	include/wefax_map.h \

@@ -97,6 +97,8 @@ extern Fl_Scroll       *wefax_pic_rx_scroll;
 #include "wefax-pic.h"
 #include "navtex.h"
 #include "mt63.h"
+#include "qrss.h"
+#include "hwfall_viewer.h"
 #include "view_rtty.h"
 #include "olivia.h"
 #include "contestia.h"
@@ -1680,7 +1682,7 @@ void redraw_windows()
 		ifkppicRxWin, ifkppicTxWin,
 		MacroEditDialog,
 		test_signal_window,
-		rxaudio_dialog, wefax_pic_tx_win };
+		rxaudio_dialog, wefax_pic_tx_win, hwf_viewer::viewer };
 	for (size_t n = 0; n < sizeof(w) / sizeof(*w); n++)
 		if (w[n]) w[n]->redraw();
 }
@@ -1697,7 +1699,7 @@ void remove_windows()
 		"fsq monitor", "fsq rxwin", "fsq txwin",
 		"ifkp rxwin", "ifkp txwin",
 		"macro editor", "test signals", "rx audio",
-		"wefax tx dialog"
+		"wefax tx dialog", "hwfall viewer"
 	};
 	Fl_Double_Window *w[] = {
 		scopeview, dlgRecordLoader,
@@ -1711,7 +1713,7 @@ void remove_windows()
 		ifkppicRxWin, ifkppicTxWin,
 		MacroEditDialog,
 		test_signal_window,
-		rxaudio_dialog, wefax_pic_tx_win };
+		rxaudio_dialog, wefax_pic_tx_win, hwf_viewer::viewer };
 		std::string sdeleting = "\nDeleting dialogs / Stopping debug session";
 	for (size_t n = 0; n < sizeof(w) / sizeof(*w); n++) {
 		if (w[n]) {
@@ -1854,7 +1856,11 @@ void init_modem(trx_mode mode, int freq)
 	case MODE_CW:
 		startup_modem(*mode_info[mode].modem ? *mode_info[mode].modem :
 				  *mode_info[mode].modem = new cw, freq);
-//		modem_config_tab = tabCW;
+		break;
+
+	case MODE_QRSS:
+		startup_modem(*mode_info[mode].modem ? *mode_info[mode].modem :
+				  *mode_info[mode].modem = new qrss, freq);
 		break;
 
     case MODE_SCAMPFSK: case MODE_SCAMPOOK: case MODE_SCFSKFST:
@@ -1862,7 +1868,6 @@ void init_modem(trx_mode mode, int freq)
 		startup_modem(*mode_info[mode].modem ? *mode_info[mode].modem :
 				  *mode_info[mode].modem = new scamp(mode), freq);
 		quick_change = quick_change_scamp;
-//		modem_config_tab = tabSCAMP;
 		break;
         
 	case MODE_THORMICRO: case MODE_THOR4: case MODE_THOR5: case MODE_THOR8:
@@ -1872,7 +1877,6 @@ void init_modem(trx_mode mode, int freq)
 		startup_modem(*mode_info[mode].modem ? *mode_info[mode].modem :
 				  *mode_info[mode].modem = new thor(mode), freq);
 		quick_change = quick_change_thor;
-//		modem_config_tab = tabTHOR;
 		break;
 
 	case MODE_DOMINOEXMICRO: case MODE_DOMINOEX4: case MODE_DOMINOEX5: case MODE_DOMINOEX8:
@@ -1881,7 +1885,6 @@ void init_modem(trx_mode mode, int freq)
 		startup_modem(*mode_info[mode].modem ? *mode_info[mode].modem :
 				  *mode_info[mode].modem = new dominoex(mode), freq);
 		quick_change = quick_change_domino;
-//		modem_config_tab = tabDomEX;
 		break;
 
 	case MODE_FELDHELL:
@@ -1894,7 +1897,6 @@ void init_modem(trx_mode mode, int freq)
 		startup_modem(*mode_info[mode].modem ? *mode_info[mode].modem :
 				  *mode_info[mode].modem = new feld(mode), freq);
 		quick_change = quick_change_feld;
-//		modem_config_tab = tabFeld;
 		break;
 
 	case MODE_MFSK4:
@@ -1918,7 +1920,6 @@ void init_modem(trx_mode mode, int freq)
 		startup_modem(*mode_info[mode].modem ? *mode_info[mode].modem :
 				  *mode_info[mode].modem = new wefax(mode), freq);
 		quick_change = quick_change_wefax;
-//		modem_config_tab = tabWefax;
 		break;
 
 	case MODE_NAVTEX:
@@ -1926,7 +1927,6 @@ void init_modem(trx_mode mode, int freq)
 		startup_modem(*mode_info[mode].modem ? *mode_info[mode].modem :
 				  *mode_info[mode].modem = new navtex(mode), freq);
 		quick_change = quick_change_navtex;
-//		modem_config_tab = tabNavtex;
 		break;
 
 	case MODE_MT63_500S: case MODE_MT63_1000S: case MODE_MT63_2000S :
@@ -1934,7 +1934,6 @@ void init_modem(trx_mode mode, int freq)
 		startup_modem(*mode_info[mode].modem ? *mode_info[mode].modem :
 				  *mode_info[mode].modem = new mt63(mode), freq);
 		quick_change = quick_change_mt63;
-//		modem_config_tab = tabMT63;
 		break;
 
 	case MODE_PSK31: case MODE_PSK63: case MODE_PSK63F:
@@ -1943,14 +1942,12 @@ void init_modem(trx_mode mode, int freq)
 		startup_modem(*mode_info[mode].modem ? *mode_info[mode].modem :
 				  *mode_info[mode].modem = new psk(mode), freq);
 		quick_change = quick_change_psk;
-//		modem_config_tab = tabPSK;
 		break;
 
 	case MODE_QPSK31: case MODE_QPSK63: case MODE_QPSK125: case MODE_QPSK250: case MODE_QPSK500:
 		startup_modem(*mode_info[mode].modem ? *mode_info[mode].modem :
 				  *mode_info[mode].modem = new psk(mode), freq);
 		quick_change = quick_change_qpsk;
-//		modem_config_tab = tabPSK;
 		break;
 	case MODE_8PSK125:
 	case MODE_8PSK250:
@@ -1966,7 +1963,6 @@ void init_modem(trx_mode mode, int freq)
 		startup_modem(*mode_info[mode].modem ? *mode_info[mode].modem :
 				  *mode_info[mode].modem = new psk(mode), freq);
 		quick_change = quick_change_8psk;
-//		modem_config_tab = tabPSK;
 		break;
 
 /* Commented out pending development work by KL4YFD
@@ -1978,7 +1974,6 @@ void init_modem(trx_mode mode, int freq)
 		startup_modem(*mode_info[mode].modem ? *mode_info[mode].modem :
 		*mode_info[mode].modem = new psk(mode), freq);
 		quick_change = quick_change_ofdm;
-		//		modem_config_tab = tabPSK;
 		break;
 */
 
@@ -1987,7 +1982,6 @@ void init_modem(trx_mode mode, int freq)
 		startup_modem(*mode_info[mode].modem ? *mode_info[mode].modem :
 				  *mode_info[mode].modem = new psk(mode), freq);
 		quick_change = quick_change_pskr;
-//		modem_config_tab = tabPSK;
 		break;
 
 	case MODE_12X_PSK125 :
@@ -1999,7 +1993,6 @@ void init_modem(trx_mode mode, int freq)
 		startup_modem(*mode_info[mode].modem ? *mode_info[mode].modem :
 				  *mode_info[mode].modem = new psk(mode), freq);
 		quick_change = quick_change_psk_multi;
-//		modem_config_tab = tabPSK;
 		break;
 
 	case MODE_4X_PSK63R :
@@ -2029,7 +2022,6 @@ void init_modem(trx_mode mode, int freq)
 		startup_modem(*mode_info[mode].modem ? *mode_info[mode].modem :
 				  *mode_info[mode].modem = new psk(mode), freq);
 		quick_change = quick_change_psk_multiR;
-//		modem_config_tab = tabPSK;
 		break;
 
 	case MODE_OLIVIA:
@@ -2053,7 +2045,6 @@ void init_modem(trx_mode mode, int freq)
 	case MODE_OLIVIA_64_2000:
 		startup_modem(*mode_info[mode].modem ? *mode_info[mode].modem :
 				  *mode_info[mode].modem = new olivia(mode), freq);
-//		modem_config_tab = tabOlivia;
 		quick_change = quick_change_olivia;
 		break;
 
@@ -2068,29 +2059,24 @@ void init_modem(trx_mode mode, int freq)
 	case MODE_CONTESTIA_64_500:  case MODE_CONTESTIA_64_1000: case MODE_CONTESTIA_64_2000:
 		startup_modem(*mode_info[mode].modem ? *mode_info[mode].modem :
 				  *mode_info[mode].modem = new contestia(mode), freq);
-//		modem_config_tab = tabContestia;
 		quick_change = quick_change_contestia;
 		break;
 
 	case MODE_FSQ:
 		startup_modem(*mode_info[mode].modem ? *mode_info[mode].modem :
 				  *mode_info[mode].modem = new fsq(mode), freq);
-//		modem_config_tab = tabFSQ;
 		quick_change = quick_change_fsq;
 		break;
 
 	case MODE_IFKP:
 		startup_modem(*mode_info[mode].modem ? *mode_info[mode].modem :
 				  *mode_info[mode].modem = new ifkp(mode), freq);
-//		modem_config_tab = tabIFKP;
 		quick_change = quick_change_ifkp;
 		break;
 
 	case MODE_RTTY:
 		startup_modem(*mode_info[mode].modem ? *mode_info[mode].modem :
 				  *mode_info[mode].modem = new rtty(mode), freq);
-//		modem_config_tab = tabRTTY;
-
 		if (progStatus.nanoFSK_online || progStatus.Nav_online || progdefaults.useFSK)
 			quick_change = 0;
 		else
@@ -2107,7 +2093,6 @@ void init_modem(trx_mode mode, int freq)
 //	case MODE_PACKET:
 //		startup_modem(*mode_info[mode].modem ? *mode_info[mode].modem :
 //			      *mode_info[mode].modem = new pkt(mode), freq);
-//		modem_config_tab = tabNavtex;
 //		quick_change = quick_change_pkt;
 //		break;
 
@@ -2137,7 +2122,6 @@ void init_modem(trx_mode mode, int freq)
 		startup_modem(*mode_info[mode].modem ? *mode_info[mode].modem :
 				  *mode_info[mode].modem = new psk(mode), freq);
 		quick_change = quick_change_psk;
-//		modem_config_tab = tabPSK;
 		break;
 	}
 
@@ -2157,7 +2141,6 @@ void init_modem(trx_mode mode, int freq)
 			active_modem->set_freqlock(false);
 		}
 	}
-
 //	if (FD_logged_on) FD_mode_check();
 }
 
@@ -2406,6 +2389,9 @@ void cb_mnuConfigModems(Fl_Menu_*, void*) {
 		case MODE_CW:
 			open_config(TAB_CW);
 			break;
+		case MODE_QRSS:
+			open_config(TAB_QRSS);
+			break;
 	    case MODE_SCAMPFSK: case MODE_SCAMPOOK: case MODE_SCFSKFST:
 	    case MODE_SCFSKSLW: case MODE_SCOOKSLW: case MODE_SCFSKVSL:
 			open_config(TAB_SCAMP);
@@ -2484,24 +2470,6 @@ void cb_mnuConfigModems(Fl_Menu_*, void*) {
 			break;
 	}
 }
-
-/*
-void cb_mnuConfigWinkeyer(Fl_Menu_*, void*) {
-	open_config(TAB_CW);
-}
-
-void cb_mnuConfigWFcontrols(Fl_Menu_ *, void*) {
-	open_config(TAB_UI_WATERFALL);
-}
-
-void cb_n3fjp_logs(Fl_Menu_ *, void*) {
-	open_config(TAB_UI_N3FJP);
-}
-
-void cb_maclogger(Fl_Menu_ *, void*) {
-	open_config(TAB_UI_MACLOGGER);
-}
-*/
 
 void cb_mnuConfigLoTW(Fl_Menu_ *, void *) {
 	open_config(TAB_LOG_LOTW);
@@ -3174,6 +3142,23 @@ void cb_mnuSpectrum (Fl_Menu_ *, void *) {
 void cb_mnuShowCountries(Fl_Menu_ *, void *)
 {
 	notify_dxcc_show();
+}
+
+void cb_hwf_viewer(Fl_Double_Window *w, void *)
+{
+	progStatus.hwf_x = hwf_viewer::viewer->x();
+	progStatus.hwf_y = hwf_viewer::viewer->y();
+	hwf_viewer::viewer->hide();
+}
+
+void cb_mnuHWfallViewer(Fl_Menu_ *, void *)
+{
+	if (!hwf_viewer::viewer) {
+		hwf_viewer::viewer = hwf_viewer::create_viewer();
+		hwf_viewer::viewer->callback((Fl_Callback *)cb_hwf_viewer);
+	}
+	hwf_viewer::viewer->position(progStatus.hwf_x, progStatus.hwf_y);
+	hwf_viewer::viewer->show();
 }
 
 void set_macroLabels()
@@ -4285,6 +4270,7 @@ void status_cb(Fl_Widget *b, void *arg)
 		trx_mode md = active_modem->get_mode();
 		if (md == MODE_FMT) open_config(TAB_FMT);
 		else if (md == MODE_CW) open_config(TAB_CW);
+		else if (md == MODE_QRSS) open_config(TAB_QRSS);
 		else if (md == MODE_IFKP) open_config(TAB_IFKP);
 		else if (md == MODE_FSQ) open_config(TAB_FSQ);
 		else if (md >= MODE_MFSK_FIRST && md <= MODE_MFSK_LAST) open_config(TAB_MFSK);
@@ -7495,6 +7481,8 @@ Fl_Menu_Item menu_[] = {
 {0,0,0,0,0,0,0,0,0},
 {0,0,0,0,0,0,0,0,0},
 
+{ mode_info[MODE_QRSS].name, 0, cb_init_mode, (void *)MODE_QRSS, 0, FL_NORMAL_LABEL, 0, 14, 0},
+
 { RTTY_MLABEL, 0, 0, 0, FL_SUBMENU, FL_NORMAL_LABEL, 0, 14, 0},
 { "RTTY-45", 0, cb_rtty45, (void *)MODE_RTTY, 0, FL_NORMAL_LABEL, 0, 14, 0},
 { "RTTY-50", 0, cb_rtty50, (void *)MODE_RTTY, 0, FL_NORMAL_LABEL, 0, 14, 0},
@@ -7591,6 +7579,7 @@ Fl_Menu_Item menu_[] = {
 
 { icons::make_icon_label(_("Floating scope"), utilities_system_monitor_icon), 'f', (Fl_Callback*)cb_mnuDigiscope, 0, 0, _FL_MULTI_LABEL, 0, 14, 0},
 { icons::make_icon_label(_("Spectrum scope"), utilities_system_monitor_icon), 's', (Fl_Callback*)cb_mnuSpectrum, 0, FL_MENU_DIVIDER, _FL_MULTI_LABEL, 0, 14, 0},
+{ icons::make_icon_label(_("Horizontal waterfall"), utilities_system_monitor_icon), 'h', (Fl_Callback*)cb_mnuHWfallViewer, 0, FL_MENU_DIVIDER, _FL_MULTI_LABEL, 0, 14, 0},
 
 { icons::make_icon_label(MFSK_IMAGE_MLABEL, image_icon), 0, (Fl_Callback*)cb_mnuPicViewer, 0, FL_MENU_INACTIVE, _FL_MULTI_LABEL, 0, 14, 0},
 { icons::make_icon_label(THOR_IMAGE_MLABEL, image_icon), 0, (Fl_Callback*)cb_mnuThorViewRaw,0, FL_MENU_INACTIVE, _FL_MULTI_LABEL, 0, 14, 0},

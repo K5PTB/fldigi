@@ -37,7 +37,7 @@
 
 #define DSP_CNT			1		//seconds
 
-#define MAX_MINUTES		2880
+#define MAX_MINUTES		960		// 16 hours
 #define MAX_DATA_PTS	(60 * MAX_MINUTES)
 
 extern pthread_mutex_t scope_mutex;

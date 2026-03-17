@@ -40,6 +40,7 @@
 #include "network.h"
 #include "ui_colors.h"
 #include "wefax.h"
+#include "qrss.h"
 #if USE_HAMLIB
   #include "hamlib.h"
 #endif
@@ -4285,6 +4286,54 @@ static void cb_btn_CAT_keying_test(Fl_Button*, void*) {
 
 Fl_Value_Input *out_CATkeying_test_result=(Fl_Value_Input *)0;
 
+Fl_ListBox *i_listbox_contestia_bandwidth=(Fl_ListBox *)0;
+
+static void cb_i_listbox_contestia_bandwidth(Fl_ListBox* o, void*) {
+  progdefaults.contestiabw = o->index();
+  set_contestia_default_integ();
+  resetCONTESTIA();
+  progdefaults.changed = true;
+}
+
+Fl_ListBox *i_listbox_contestia_tones=(Fl_ListBox *)0;
+
+static void cb_i_listbox_contestia_tones(Fl_ListBox* o, void*) {
+  progdefaults.contestiatones = o->index();
+  set_contestia_default_integ();
+  resetCONTESTIA();
+  progdefaults.changed = true;
+}
+
+Fl_Counter2 *cntContestia_smargin=(Fl_Counter2 *)0;
+
+static void cb_cntContestia_smargin(Fl_Counter2* o, void*) {
+  progdefaults.contestiasmargin = (int)(o->value());
+  resetCONTESTIA();
+  progdefaults.changed = true;
+}
+
+Fl_Counter2 *cntContestia_sinteg=(Fl_Counter2 *)0;
+
+static void cb_cntContestia_sinteg(Fl_Counter2* o, void*) {
+  progdefaults.contestiasinteg = (int)(o->value());
+  resetCONTESTIA();
+  progdefaults.changed = true;
+}
+
+Fl_Check_Button *btnContestia_8bit=(Fl_Check_Button *)0;
+
+static void cb_btnContestia_8bit(Fl_Check_Button* o, void*) {
+  progdefaults.contestia8bit = o->value();
+  progdefaults.changed = true;
+}
+
+Fl_Check_Button *btnContestia_start_stop_tones=(Fl_Check_Button *)0;
+
+static void cb_btnContestia_start_stop_tones(Fl_Check_Button* o, void*) {
+  progdefaults.contestia_start_tones = o->value();
+  progdefaults.changed = true;
+}
+
 Fl_Input2 *txtSecondary=(Fl_Input2 *)0;
 
 static void cb_txtSecondary(Fl_Input2* o, void*) {
@@ -5067,54 +5116,6 @@ static void cb_btnMT63_manual(Fl_Check_Button* o, void*) {
   progdefaults.changed = true;
 }
 
-Fl_ListBox *i_listbox_contestia_bandwidth=(Fl_ListBox *)0;
-
-static void cb_i_listbox_contestia_bandwidth(Fl_ListBox* o, void*) {
-  progdefaults.contestiabw = o->index();
-  set_contestia_default_integ();
-  resetCONTESTIA();
-  progdefaults.changed = true;
-}
-
-Fl_ListBox *i_listbox_contestia_tones=(Fl_ListBox *)0;
-
-static void cb_i_listbox_contestia_tones(Fl_ListBox* o, void*) {
-  progdefaults.contestiatones = o->index();
-  set_contestia_default_integ();
-  resetCONTESTIA();
-  progdefaults.changed = true;
-}
-
-Fl_Counter2 *cntContestia_smargin=(Fl_Counter2 *)0;
-
-static void cb_cntContestia_smargin(Fl_Counter2* o, void*) {
-  progdefaults.contestiasmargin = (int)(o->value());
-  resetCONTESTIA();
-  progdefaults.changed = true;
-}
-
-Fl_Counter2 *cntContestia_sinteg=(Fl_Counter2 *)0;
-
-static void cb_cntContestia_sinteg(Fl_Counter2* o, void*) {
-  progdefaults.contestiasinteg = (int)(o->value());
-  resetCONTESTIA();
-  progdefaults.changed = true;
-}
-
-Fl_Check_Button *btnContestia_8bit=(Fl_Check_Button *)0;
-
-static void cb_btnContestia_8bit(Fl_Check_Button* o, void*) {
-  progdefaults.contestia8bit = o->value();
-  progdefaults.changed = true;
-}
-
-Fl_Check_Button *btnContestia_start_stop_tones=(Fl_Check_Button *)0;
-
-static void cb_btnContestia_start_stop_tones(Fl_Check_Button* o, void*) {
-  progdefaults.contestia_start_tones = o->value();
-  progdefaults.changed = true;
-}
-
 Fl_ListBox *i_listbox_olivia_bandwidth=(Fl_ListBox *)0;
 
 static void cb_i_listbox_olivia_bandwidth(Fl_ListBox* o, void*) {
@@ -5222,6 +5223,107 @@ Fl_Check_Button *btnPSK8Preamble=(Fl_Check_Button *)0;
 
 static void cb_btnPSK8Preamble(Fl_Check_Button* o, void*) {
   progStatus.psk8DCDShortFlag = o->value();
+}
+
+Fl_Check_Button *btnCW_qrss=(Fl_Check_Button *)0;
+
+static void cb_btnCW_qrss(Fl_Check_Button* o, void*) {
+  if (o->value() == true) {
+    qrss_prefs.CW_qrss=true;
+    qrss_prefs.FM_qrss = false;
+    qrss_prefs.DFCW_qrss = false;
+    btnFM_qrss->value(0);
+    btnDFCW_qrss->value(0);
+    progdefaults.changed = true;
+  }
+  else
+    o->value(1);
+}
+
+Fl_Counter *cntCW_qrss=(Fl_Counter *)0;
+
+static void cb_cntCW_qrss(Fl_Counter* o, void*) {
+  qrss_prefs.QRSS_DOT = o->value();
+  progdefaults.changed = true;
+}
+
+Fl_Counter *cnt_QRSS_ENV_MSEC=(Fl_Counter *)0;
+
+static void cb_cnt_QRSS_ENV_MSEC(Fl_Counter* o, void*) {
+  qrss_prefs.QRSS_ENV_MSEC= o->value();
+  progdefaults.changed = true;
+}
+
+Fl_Check_Button *btnFM_qrss=(Fl_Check_Button *)0;
+
+static void cb_btnFM_qrss(Fl_Check_Button* o, void*) {
+  if (o->value() == true) {
+    qrss_prefs.FM_qrss=true;
+    qrss_prefs.CW_qrss = false;
+    qrss_prefs.DFCW_qrss = false;
+    btnCW_qrss->value(0);
+    btnDFCW_qrss->value(0);
+    progdefaults.changed = true;
+  }
+  else
+    o->value(1);
+}
+
+Fl_Counter *cnt_QRSS_FM_SHIFT=(Fl_Counter *)0;
+
+static void cb_cnt_QRSS_FM_SHIFT(Fl_Counter* o, void*) {
+  qrss_prefs.QRSS_FM_SHIFT= o->value();
+  progdefaults.changed = true;
+}
+
+Fl_Check_Button *btnDFCW_qrss=(Fl_Check_Button *)0;
+
+static void cb_btnDFCW_qrss(Fl_Check_Button* o, void*) {
+  if (o->value() == true) {
+    qrss_prefs.DFCW_qrss=true;
+    qrss_prefs.CW_qrss = false;
+    qrss_prefs.FM_qrss = false;
+    btnCW_qrss->value(0);
+    btnFM_qrss->value(0);
+    progdefaults.changed = true;
+  }
+  else
+    o->value(1);
+}
+
+Fl_Counter *cnt_QRSS_DFCW_DOT_SHIFT=(Fl_Counter *)0;
+
+static void cb_cnt_QRSS_DFCW_DOT_SHIFT(Fl_Counter* o, void*) {
+  qrss_prefs.QRSS_DFCW_DOT_SHIFT= o->value();
+  progdefaults.changed = true;
+}
+
+Fl_Counter *cnt_QRSS_DFCW_DASH_SHIFT=(Fl_Counter *)0;
+
+static void cb_cnt_QRSS_DFCW_DASH_SHIFT(Fl_Counter* o, void*) {
+  qrss_prefs.QRSS_DFCW_DASH_SHIFT= o->value();
+  progdefaults.changed = true;
+}
+
+Fl_Counter *cnt_QRSS_DFCW_KEYUP_SHIFT=(Fl_Counter *)0;
+
+static void cb_cnt_QRSS_DFCW_KEYUP_SHIFT(Fl_Counter* o, void*) {
+  qrss_prefs.QRSS_DFCW_KEYUP_SHIFT= o->value();
+  progdefaults.changed = true;
+}
+
+Fl_Counter *cnt_QRSS_DFCW_ELEMENT_LEN=(Fl_Counter *)0;
+
+static void cb_cnt_QRSS_DFCW_ELEMENT_LEN(Fl_Counter* o, void*) {
+  qrss_prefs.QRSS_DFCW_ELEMENT_LEN= o->value();
+  progdefaults.changed = true;
+}
+
+Fl_Counter *cnt_QRSS_DFCW_KEYUP_LEN=(Fl_Counter *)0;
+
+static void cb_cnt_QRSS_DFCW_KEYUP_LEN(Fl_Counter* o, void*) {
+  qrss_prefs.QRSS_DFCW_KEYUP_LEN= o->value();
+  progdefaults.changed = true;
 }
 
 Fl_Counter *ScampResync=(Fl_Counter *)0;
@@ -13715,7 +13817,7 @@ Fl_Double_Window* ConfigureDialog() {
       o->box(FL_ENGRAVED_BOX);
       o->align(Fl_Align(FL_ALIGN_TOP_LEFT|FL_ALIGN_INSIDE));
       o->hide();
-      { Fl_Box* o = new Fl_Box(210, 33, 575, 118, gettext("Compute timing compensation for CAT CW and WinKeyer CW.  Computation at curre"
+      { Fl_Box* o = new Fl_Box(200, 0, 575, 118, gettext("Compute timing compensation for CAT CW and WinKeyer CW.  Computation at curre"
 "nt\nWPM .  Set WPM to nominal (suggest 20 WPM).\n\nCompensation will be good o"
 "ver a +/- 10 WPM range.  Calibration/Test is 1 minute of\n\'PARIS \'."));
         o->box(FL_ENGRAVED_BOX);
@@ -13723,26 +13825,26 @@ Fl_Double_Window* ConfigureDialog() {
         o->labelsize(13);
         o->align(Fl_Align(FL_ALIGN_LEFT|FL_ALIGN_INSIDE));
       } // Fl_Box* o
-      { btn_CAT_keying_calibrate = new Fl_Button(245, 184, 80, 22, gettext("Calibrate"));
+      { btn_CAT_keying_calibrate = new Fl_Button(200, 0, 80, 22, gettext("Calibrate"));
         btn_CAT_keying_calibrate->tooltip(gettext("Send WPM \'PARIS \' words"));
         btn_CAT_keying_calibrate->callback((Fl_Callback*)cb_btn_CAT_keying_calibrate);
       } // Fl_Button* btn_CAT_keying_calibrate
-      { Fl_Value_Input* o = out_CATkeying_compensation = new Fl_Value_Input(329, 184, 50, 22, gettext("Compensate (secs)"));
+      { Fl_Value_Input* o = out_CATkeying_compensation = new Fl_Value_Input(200, 0, 50, 22, gettext("Compensate (secs)"));
         out_CATkeying_compensation->maximum(10);
         out_CATkeying_compensation->step(0.01);
         out_CATkeying_compensation->callback((Fl_Callback*)cb_out_CATkeying_compensation);
         out_CATkeying_compensation->align(Fl_Align(FL_ALIGN_RIGHT));
         o->value(progdefaults.CATkeying_compensation / 1000.0);
       } // Fl_Value_Input* out_CATkeying_compensation
-      { btn_CAT_keying_clear = new Fl_Button(525, 184, 50, 22, gettext("Clear"));
+      { btn_CAT_keying_clear = new Fl_Button(200, 0, 50, 22, gettext("Clear"));
         btn_CAT_keying_clear->tooltip(gettext("Clear compensation"));
         btn_CAT_keying_clear->callback((Fl_Callback*)cb_btn_CAT_keying_clear);
       } // Fl_Button* btn_CAT_keying_clear
-      { btn_CAT_keying_test = new Fl_Button(589, 184, 50, 22, gettext("Test"));
+      { btn_CAT_keying_test = new Fl_Button(200, 0, 50, 22, gettext("Test"));
         btn_CAT_keying_test->tooltip(gettext("Send WPM \'PARIS \' words"));
         btn_CAT_keying_test->callback((Fl_Callback*)cb_btn_CAT_keying_test);
       } // Fl_Button* btn_CAT_keying_test
-      { Fl_Value_Input* o = out_CATkeying_test_result = new Fl_Value_Input(645, 184, 50, 22, gettext("secs"));
+      { Fl_Value_Input* o = out_CATkeying_test_result = new Fl_Value_Input(200, 0, 50, 22, gettext("secs"));
         out_CATkeying_test_result->maximum(10);
         out_CATkeying_test_result->step(0.01);
         out_CATkeying_test_result->align(Fl_Align(FL_ALIGN_RIGHT));
@@ -13751,6 +13853,107 @@ Fl_Double_Window* ConfigureDialog() {
       CONFIG_PAGE *p = new CONFIG_PAGE(o, _("Modem/CW/Compensation"));
       config_pages.push_back(p);
       tab_tree->add(_("Modem/CW/Compensation"));
+      o->end();
+    } // Fl_Group* o
+    { Fl_Group* o = new Fl_Group(200, 0, 600, 350, gettext("Modem/Contestia"));
+      o->box(FL_ENGRAVED_BOX);
+      o->align(Fl_Align(FL_ALIGN_TOP_LEFT|FL_ALIGN_INSIDE));
+      o->hide();
+      { Fl_Group* o = new Fl_Group(257, 40, 490, 240);
+        o->box(FL_ENGRAVED_FRAME);
+        { Fl_ListBox* o = i_listbox_contestia_bandwidth = new Fl_ListBox(312, 60, 85, 22, gettext("Bandwidth"));
+          i_listbox_contestia_bandwidth->tooltip(gettext("Select bandwidth"));
+          i_listbox_contestia_bandwidth->box(FL_DOWN_BOX);
+          i_listbox_contestia_bandwidth->color(FL_BACKGROUND2_COLOR);
+          i_listbox_contestia_bandwidth->selection_color(FL_BACKGROUND_COLOR);
+          i_listbox_contestia_bandwidth->labeltype(FL_NORMAL_LABEL);
+          i_listbox_contestia_bandwidth->labelfont(0);
+          i_listbox_contestia_bandwidth->labelsize(14);
+          i_listbox_contestia_bandwidth->labelcolor(FL_FOREGROUND_COLOR);
+          i_listbox_contestia_bandwidth->callback((Fl_Callback*)cb_i_listbox_contestia_bandwidth);
+          i_listbox_contestia_bandwidth->align(Fl_Align(FL_ALIGN_RIGHT));
+          i_listbox_contestia_bandwidth->when(FL_WHEN_RELEASE);
+          o->add(szContestiaBandwidth);
+          o->index(progdefaults.contestiabw);
+          o->labelsize(FL_NORMAL_SIZE);
+          i_listbox_contestia_bandwidth->end();
+        } // Fl_ListBox* i_listbox_contestia_bandwidth
+        { Fl_ListBox* o = i_listbox_contestia_tones = new Fl_ListBox(573, 60, 70, 22, gettext("Tones"));
+          i_listbox_contestia_tones->tooltip(gettext("Select number of tones"));
+          i_listbox_contestia_tones->box(FL_DOWN_BOX);
+          i_listbox_contestia_tones->color(FL_BACKGROUND2_COLOR);
+          i_listbox_contestia_tones->selection_color(FL_BACKGROUND_COLOR);
+          i_listbox_contestia_tones->labeltype(FL_NORMAL_LABEL);
+          i_listbox_contestia_tones->labelfont(0);
+          i_listbox_contestia_tones->labelsize(14);
+          i_listbox_contestia_tones->labelcolor(FL_FOREGROUND_COLOR);
+          i_listbox_contestia_tones->callback((Fl_Callback*)cb_i_listbox_contestia_tones);
+          i_listbox_contestia_tones->align(Fl_Align(FL_ALIGN_RIGHT));
+          i_listbox_contestia_tones->when(FL_WHEN_RELEASE);
+          o->add(szContestiaTones);
+          o->index(progdefaults.contestiatones);
+          o->labelsize(FL_NORMAL_SIZE);
+          i_listbox_contestia_tones->end();
+        } // Fl_ListBox* i_listbox_contestia_tones
+        { Fl_Group* o = new Fl_Group(295, 99, 414, 101, gettext("Receive synchronizer"));
+          o->box(FL_ENGRAVED_FRAME);
+          o->align(Fl_Align(FL_ALIGN_TOP_LEFT|FL_ALIGN_INSIDE));
+          { Fl_Counter2* o = cntContestia_smargin = new Fl_Counter2(314, 130, 70, 22, gettext("Tune margin (tone frequency spacing)"));
+            cntContestia_smargin->tooltip(gettext("Change ONLY to experiment"));
+            cntContestia_smargin->type(1);
+            cntContestia_smargin->box(FL_UP_BOX);
+            cntContestia_smargin->color(FL_BACKGROUND_COLOR);
+            cntContestia_smargin->selection_color(FL_INACTIVE_COLOR);
+            cntContestia_smargin->labeltype(FL_NORMAL_LABEL);
+            cntContestia_smargin->labelfont(0);
+            cntContestia_smargin->labelsize(14);
+            cntContestia_smargin->labelcolor(FL_FOREGROUND_COLOR);
+            cntContestia_smargin->minimum(2);
+            cntContestia_smargin->maximum(128);
+            cntContestia_smargin->step(1);
+            cntContestia_smargin->value(8);
+            cntContestia_smargin->callback((Fl_Callback*)cb_cntContestia_smargin);
+            cntContestia_smargin->align(Fl_Align(FL_ALIGN_RIGHT));
+            cntContestia_smargin->when(FL_WHEN_CHANGED);
+            o->labelsize(FL_NORMAL_SIZE);
+          } // Fl_Counter2* cntContestia_smargin
+          { Fl_Counter2* o = cntContestia_sinteg = new Fl_Counter2(314, 162, 70, 22, gettext("Integration period (FEC blocks)"));
+            cntContestia_sinteg->tooltip(gettext("Change ONLY to experiment"));
+            cntContestia_sinteg->type(1);
+            cntContestia_sinteg->box(FL_UP_BOX);
+            cntContestia_sinteg->color(FL_BACKGROUND_COLOR);
+            cntContestia_sinteg->selection_color(FL_INACTIVE_COLOR);
+            cntContestia_sinteg->labeltype(FL_NORMAL_LABEL);
+            cntContestia_sinteg->labelfont(0);
+            cntContestia_sinteg->labelsize(14);
+            cntContestia_sinteg->labelcolor(FL_FOREGROUND_COLOR);
+            cntContestia_sinteg->minimum(2);
+            cntContestia_sinteg->maximum(128);
+            cntContestia_sinteg->step(1);
+            cntContestia_sinteg->value(4);
+            cntContestia_sinteg->callback((Fl_Callback*)cb_cntContestia_sinteg);
+            cntContestia_sinteg->align(Fl_Align(FL_ALIGN_RIGHT));
+            cntContestia_sinteg->when(FL_WHEN_CHANGED);
+            o->labelsize(FL_NORMAL_SIZE);
+          } // Fl_Counter2* cntContestia_sinteg
+          o->end();
+        } // Fl_Group* o
+        { btnContestia_8bit = new Fl_Check_Button(312, 209, 200, 20, gettext("8-bit extended characters"));
+          btnContestia_8bit->tooltip(gettext("Enable this for Latin-1 accented characters"));
+          btnContestia_8bit->down_box(FL_DOWN_BOX);
+          btnContestia_8bit->callback((Fl_Callback*)cb_btnContestia_8bit);
+        } // Fl_Check_Button* btnContestia_8bit
+        { Fl_Check_Button* o = btnContestia_start_stop_tones = new Fl_Check_Button(312, 240, 265, 20, gettext("xmt start/stop tones"));
+          btnContestia_start_stop_tones->tooltip(gettext("Enable this to send start/stop tones"));
+          btnContestia_start_stop_tones->down_box(FL_DOWN_BOX);
+          btnContestia_start_stop_tones->callback((Fl_Callback*)cb_btnContestia_start_stop_tones);
+          o->value(progdefaults.contestia_start_tones);
+        } // Fl_Check_Button* btnContestia_start_stop_tones
+        o->end();
+      } // Fl_Group* o
+      CONFIG_PAGE *p = new CONFIG_PAGE(o, _("Modem/Contestia"));
+      config_pages.push_back(p);
+      tab_tree->add(_("Modem/Contestia"));
       o->end();
     } // Fl_Group* o
     { Fl_Group* o = new Fl_Group(200, 0, 600, 350, gettext("Modem/DominoEX"));
@@ -14623,107 +14826,6 @@ Fl_Double_Window* ConfigureDialog() {
       tab_tree->add(_("Modem/MT-63"));
       o->end();
     } // Fl_Group* o
-    { Fl_Group* o = new Fl_Group(200, 0, 600, 350, gettext("Modem/Contestia"));
-      o->box(FL_ENGRAVED_BOX);
-      o->align(Fl_Align(FL_ALIGN_TOP_LEFT|FL_ALIGN_INSIDE));
-      o->hide();
-      { Fl_Group* o = new Fl_Group(257, 40, 490, 240);
-        o->box(FL_ENGRAVED_FRAME);
-        { Fl_ListBox* o = i_listbox_contestia_bandwidth = new Fl_ListBox(312, 60, 85, 22, gettext("Bandwidth"));
-          i_listbox_contestia_bandwidth->tooltip(gettext("Select bandwidth"));
-          i_listbox_contestia_bandwidth->box(FL_DOWN_BOX);
-          i_listbox_contestia_bandwidth->color(FL_BACKGROUND2_COLOR);
-          i_listbox_contestia_bandwidth->selection_color(FL_BACKGROUND_COLOR);
-          i_listbox_contestia_bandwidth->labeltype(FL_NORMAL_LABEL);
-          i_listbox_contestia_bandwidth->labelfont(0);
-          i_listbox_contestia_bandwidth->labelsize(14);
-          i_listbox_contestia_bandwidth->labelcolor(FL_FOREGROUND_COLOR);
-          i_listbox_contestia_bandwidth->callback((Fl_Callback*)cb_i_listbox_contestia_bandwidth);
-          i_listbox_contestia_bandwidth->align(Fl_Align(FL_ALIGN_RIGHT));
-          i_listbox_contestia_bandwidth->when(FL_WHEN_RELEASE);
-          o->add(szContestiaBandwidth);
-          o->index(progdefaults.contestiabw);
-          o->labelsize(FL_NORMAL_SIZE);
-          i_listbox_contestia_bandwidth->end();
-        } // Fl_ListBox* i_listbox_contestia_bandwidth
-        { Fl_ListBox* o = i_listbox_contestia_tones = new Fl_ListBox(573, 60, 70, 22, gettext("Tones"));
-          i_listbox_contestia_tones->tooltip(gettext("Select number of tones"));
-          i_listbox_contestia_tones->box(FL_DOWN_BOX);
-          i_listbox_contestia_tones->color(FL_BACKGROUND2_COLOR);
-          i_listbox_contestia_tones->selection_color(FL_BACKGROUND_COLOR);
-          i_listbox_contestia_tones->labeltype(FL_NORMAL_LABEL);
-          i_listbox_contestia_tones->labelfont(0);
-          i_listbox_contestia_tones->labelsize(14);
-          i_listbox_contestia_tones->labelcolor(FL_FOREGROUND_COLOR);
-          i_listbox_contestia_tones->callback((Fl_Callback*)cb_i_listbox_contestia_tones);
-          i_listbox_contestia_tones->align(Fl_Align(FL_ALIGN_RIGHT));
-          i_listbox_contestia_tones->when(FL_WHEN_RELEASE);
-          o->add(szContestiaTones);
-          o->index(progdefaults.contestiatones);
-          o->labelsize(FL_NORMAL_SIZE);
-          i_listbox_contestia_tones->end();
-        } // Fl_ListBox* i_listbox_contestia_tones
-        { Fl_Group* o = new Fl_Group(295, 99, 414, 101, gettext("Receive synchronizer"));
-          o->box(FL_ENGRAVED_FRAME);
-          o->align(Fl_Align(FL_ALIGN_TOP_LEFT|FL_ALIGN_INSIDE));
-          { Fl_Counter2* o = cntContestia_smargin = new Fl_Counter2(314, 130, 70, 22, gettext("Tune margin (tone frequency spacing)"));
-            cntContestia_smargin->tooltip(gettext("Change ONLY to experiment"));
-            cntContestia_smargin->type(1);
-            cntContestia_smargin->box(FL_UP_BOX);
-            cntContestia_smargin->color(FL_BACKGROUND_COLOR);
-            cntContestia_smargin->selection_color(FL_INACTIVE_COLOR);
-            cntContestia_smargin->labeltype(FL_NORMAL_LABEL);
-            cntContestia_smargin->labelfont(0);
-            cntContestia_smargin->labelsize(14);
-            cntContestia_smargin->labelcolor(FL_FOREGROUND_COLOR);
-            cntContestia_smargin->minimum(2);
-            cntContestia_smargin->maximum(128);
-            cntContestia_smargin->step(1);
-            cntContestia_smargin->value(8);
-            cntContestia_smargin->callback((Fl_Callback*)cb_cntContestia_smargin);
-            cntContestia_smargin->align(Fl_Align(FL_ALIGN_RIGHT));
-            cntContestia_smargin->when(FL_WHEN_CHANGED);
-            o->labelsize(FL_NORMAL_SIZE);
-          } // Fl_Counter2* cntContestia_smargin
-          { Fl_Counter2* o = cntContestia_sinteg = new Fl_Counter2(314, 162, 70, 22, gettext("Integration period (FEC blocks)"));
-            cntContestia_sinteg->tooltip(gettext("Change ONLY to experiment"));
-            cntContestia_sinteg->type(1);
-            cntContestia_sinteg->box(FL_UP_BOX);
-            cntContestia_sinteg->color(FL_BACKGROUND_COLOR);
-            cntContestia_sinteg->selection_color(FL_INACTIVE_COLOR);
-            cntContestia_sinteg->labeltype(FL_NORMAL_LABEL);
-            cntContestia_sinteg->labelfont(0);
-            cntContestia_sinteg->labelsize(14);
-            cntContestia_sinteg->labelcolor(FL_FOREGROUND_COLOR);
-            cntContestia_sinteg->minimum(2);
-            cntContestia_sinteg->maximum(128);
-            cntContestia_sinteg->step(1);
-            cntContestia_sinteg->value(4);
-            cntContestia_sinteg->callback((Fl_Callback*)cb_cntContestia_sinteg);
-            cntContestia_sinteg->align(Fl_Align(FL_ALIGN_RIGHT));
-            cntContestia_sinteg->when(FL_WHEN_CHANGED);
-            o->labelsize(FL_NORMAL_SIZE);
-          } // Fl_Counter2* cntContestia_sinteg
-          o->end();
-        } // Fl_Group* o
-        { btnContestia_8bit = new Fl_Check_Button(312, 209, 200, 20, gettext("8-bit extended characters"));
-          btnContestia_8bit->tooltip(gettext("Enable this for Latin-1 accented characters"));
-          btnContestia_8bit->down_box(FL_DOWN_BOX);
-          btnContestia_8bit->callback((Fl_Callback*)cb_btnContestia_8bit);
-        } // Fl_Check_Button* btnContestia_8bit
-        { Fl_Check_Button* o = btnContestia_start_stop_tones = new Fl_Check_Button(312, 240, 265, 20, gettext("xmt start/stop tones"));
-          btnContestia_start_stop_tones->tooltip(gettext("Enable this to send start/stop tones"));
-          btnContestia_start_stop_tones->down_box(FL_DOWN_BOX);
-          btnContestia_start_stop_tones->callback((Fl_Callback*)cb_btnContestia_start_stop_tones);
-          o->value(progdefaults.contestia_start_tones);
-        } // Fl_Check_Button* btnContestia_start_stop_tones
-        o->end();
-      } // Fl_Group* o
-      CONFIG_PAGE *p = new CONFIG_PAGE(o, _("Modem/Contestia"));
-      config_pages.push_back(p);
-      tab_tree->add(_("Modem/Contestia"));
-      o->end();
-    } // Fl_Group* o
     { Fl_Group* o = new Fl_Group(200, 0, 600, 350, gettext("Modem/Olivia"));
       o->box(FL_ENGRAVED_BOX);
       o->align(Fl_Align(FL_ALIGN_TOP_LEFT|FL_ALIGN_INSIDE));
@@ -14977,6 +15079,122 @@ Fl_Double_Window* ConfigureDialog() {
       CONFIG_PAGE *p = new CONFIG_PAGE(o, _("Modem/Psk"));
       config_pages.push_back(p);
       tab_tree->add(_("Modem/Psk"));
+      o->end();
+    } // Fl_Group* o
+    { Fl_Group* o = new Fl_Group(200, 0, 600, 350, gettext("Modem/QRSS"));
+      o->box(FL_ENGRAVED_BOX);
+      o->align(Fl_Align(FL_ALIGN_TOP_LEFT|FL_ALIGN_INSIDE));
+      o->hide();
+      { Fl_Group* o = new Fl_Group(220, 35, 564, 50);
+        o->box(FL_ENGRAVED_BOX);
+        { Fl_Check_Button* o = btnCW_qrss = new Fl_Check_Button(233, 45, 120, 22, gettext("CW QRSS"));
+          btnCW_qrss->tooltip(gettext("Enable QRSS transmission using audio tone"));
+          btnCW_qrss->down_box(FL_DOWN_BOX);
+          btnCW_qrss->callback((Fl_Callback*)cb_btnCW_qrss);
+          o->value(qrss_prefs.CW_qrss);
+        } // Fl_Check_Button* btnCW_qrss
+        { Fl_Counter* o = cntCW_qrss = new Fl_Counter(360, 45, 120, 22, gettext("Dot Duration (secs)"));
+          cntCW_qrss->minimum(0.1);
+          cntCW_qrss->maximum(100);
+          cntCW_qrss->value(1);
+          cntCW_qrss->callback((Fl_Callback*)cb_cntCW_qrss);
+          o->value(qrss_prefs.QRSS_DOT);
+          o->labelsize(FL_NORMAL_SIZE);
+          o->lstep(1);
+        } // Fl_Counter* cntCW_qrss
+        { Fl_Counter* o = cnt_QRSS_ENV_MSEC = new Fl_Counter(528, 45, 75, 22, gettext("Rise time (msec)"));
+          cnt_QRSS_ENV_MSEC->type(1);
+          cnt_QRSS_ENV_MSEC->minimum(0);
+          cnt_QRSS_ENV_MSEC->maximum(20);
+          cnt_QRSS_ENV_MSEC->step(1);
+          cnt_QRSS_ENV_MSEC->callback((Fl_Callback*)cb_cnt_QRSS_ENV_MSEC);
+          o->value(qrss_prefs.QRSS_ENV_MSEC);
+        } // Fl_Counter* cnt_QRSS_ENV_MSEC
+        o->end();
+      } // Fl_Group* o
+      { Fl_Group* o = new Fl_Group(220, 90, 564, 50);
+        o->box(FL_ENGRAVED_BOX);
+        { Fl_Check_Button* o = btnFM_qrss = new Fl_Check_Button(233, 100, 122, 22, gettext("FM QRSS"));
+          btnFM_qrss->tooltip(gettext("Enable QRSS transmission using FM audio tone"));
+          btnFM_qrss->down_box(FL_DOWN_BOX);
+          btnFM_qrss->callback((Fl_Callback*)cb_btnFM_qrss);
+          o->value(qrss_prefs.FM_qrss);
+        } // Fl_Check_Button* btnFM_qrss
+        { Fl_Counter* o = cnt_QRSS_FM_SHIFT = new Fl_Counter(362, 100, 122, 22, gettext("FM shift (Hertz)"));
+          cnt_QRSS_FM_SHIFT->minimum(4);
+          cnt_QRSS_FM_SHIFT->maximum(200);
+          cnt_QRSS_FM_SHIFT->step(1);
+          cnt_QRSS_FM_SHIFT->callback((Fl_Callback*)cb_cnt_QRSS_FM_SHIFT);
+          o->value(qrss_prefs.QRSS_FM_SHIFT);
+          o->lstep(10);
+        } // Fl_Counter* cnt_QRSS_FM_SHIFT
+        o->end();
+      } // Fl_Group* o
+      { Fl_Group* o = new Fl_Group(220, 145, 564, 100);
+        o->box(FL_ENGRAVED_BOX);
+        { Fl_Check_Button* o = btnDFCW_qrss = new Fl_Check_Button(233, 150, 120, 22, gettext("DFCW QRSS"));
+          btnDFCW_qrss->tooltip(gettext("Enable QRSS transmission using FM audio tone"));
+          btnDFCW_qrss->down_box(FL_DOWN_BOX);
+          btnDFCW_qrss->value(1);
+          btnDFCW_qrss->callback((Fl_Callback*)cb_btnDFCW_qrss);
+          o->value(qrss_prefs.DFCW_qrss);
+        } // Fl_Check_Button* btnDFCW_qrss
+        { Fl_Counter* o = cnt_QRSS_DFCW_DOT_SHIFT = new Fl_Counter(360, 150, 120, 22, gettext("DOT freq (Hertz)"));
+          cnt_QRSS_DFCW_DOT_SHIFT->minimum(100);
+          cnt_QRSS_DFCW_DOT_SHIFT->maximum(1000);
+          cnt_QRSS_DFCW_DOT_SHIFT->step(1);
+          cnt_QRSS_DFCW_DOT_SHIFT->value(880);
+          cnt_QRSS_DFCW_DOT_SHIFT->callback((Fl_Callback*)cb_cnt_QRSS_DFCW_DOT_SHIFT);
+          o->value(qrss_prefs.QRSS_DFCW_DOT_SHIFT);
+          o->lstep(10);
+        } // Fl_Counter* cnt_QRSS_DFCW_DOT_SHIFT
+        { Fl_Counter* o = cnt_QRSS_DFCW_DASH_SHIFT = new Fl_Counter(505, 150, 120, 22, gettext("DASH freq (Hertz)"));
+          cnt_QRSS_DFCW_DASH_SHIFT->minimum(100);
+          cnt_QRSS_DFCW_DASH_SHIFT->maximum(1000);
+          cnt_QRSS_DFCW_DASH_SHIFT->step(1);
+          cnt_QRSS_DFCW_DASH_SHIFT->value(523);
+          cnt_QRSS_DFCW_DASH_SHIFT->callback((Fl_Callback*)cb_cnt_QRSS_DFCW_DASH_SHIFT);
+          o->value(qrss_prefs.QRSS_DFCW_DASH_SHIFT);
+          o->lstep(10);
+        } // Fl_Counter* cnt_QRSS_DFCW_DASH_SHIFT
+        { Fl_Counter* o = cnt_QRSS_DFCW_KEYUP_SHIFT = new Fl_Counter(650, 150, 120, 22, gettext("KEY UP freq (Hertz)"));
+          cnt_QRSS_DFCW_KEYUP_SHIFT->minimum(100);
+          cnt_QRSS_DFCW_KEYUP_SHIFT->maximum(1000);
+          cnt_QRSS_DFCW_KEYUP_SHIFT->step(1);
+          cnt_QRSS_DFCW_KEYUP_SHIFT->value(440);
+          cnt_QRSS_DFCW_KEYUP_SHIFT->callback((Fl_Callback*)cb_cnt_QRSS_DFCW_KEYUP_SHIFT);
+          o->value(qrss_prefs.QRSS_DFCW_KEYUP_SHIFT);
+          o->lstep(10);
+        } // Fl_Counter* cnt_QRSS_DFCW_KEYUP_SHIFT
+        { Fl_Counter* o = cnt_QRSS_DFCW_ELEMENT_LEN = new Fl_Counter(360, 196, 120, 22, gettext("Element len (sec)"));
+          cnt_QRSS_DFCW_ELEMENT_LEN->minimum(0.25);
+          cnt_QRSS_DFCW_ELEMENT_LEN->maximum(10);
+          cnt_QRSS_DFCW_ELEMENT_LEN->step(0.05);
+          cnt_QRSS_DFCW_ELEMENT_LEN->value(1);
+          cnt_QRSS_DFCW_ELEMENT_LEN->callback((Fl_Callback*)cb_cnt_QRSS_DFCW_ELEMENT_LEN);
+          o->value(qrss_prefs.QRSS_DFCW_ELEMENT_LEN);
+          o->lstep(1);
+        } // Fl_Counter* cnt_QRSS_DFCW_ELEMENT_LEN
+        { Fl_Counter* o = cnt_QRSS_DFCW_KEYUP_LEN = new Fl_Counter(650, 196, 120, 22, gettext("Key Up length (sec)"));
+          cnt_QRSS_DFCW_KEYUP_LEN->minimum(0.1);
+          cnt_QRSS_DFCW_KEYUP_LEN->maximum(1);
+          cnt_QRSS_DFCW_KEYUP_LEN->step(0.05);
+          cnt_QRSS_DFCW_KEYUP_LEN->value(0.25);
+          cnt_QRSS_DFCW_KEYUP_LEN->callback((Fl_Callback*)cb_cnt_QRSS_DFCW_KEYUP_LEN);
+          o->value(qrss_prefs.QRSS_DFCW_KEYUP_LEN);
+          o->lstep(1);
+        } // Fl_Counter* cnt_QRSS_DFCW_KEYUP_LEN
+        o->end();
+      } // Fl_Group* o
+      { Fl_Box* o = new Fl_Box(227, 250, 550, 92, gettext("  CW      - very slow on/off Morse code\n  FM       - very slow two tone Mors"
+"e, Dot low, Dash high frequency\n  DFCW - very slow three tone Morse, Interele"
+"ment space (key up) low tone,\n                Dot - high tone\n              "
+"  Dash - middle tone;  440 / 523 / 880 are musically related"));
+        o->align(Fl_Align(FL_ALIGN_TOP_LEFT|FL_ALIGN_INSIDE));
+      } // Fl_Box* o
+      CONFIG_PAGE *p = new CONFIG_PAGE(o, _("Modem/QRSS"));
+      config_pages.push_back(p);
+      tab_tree->add(_("Modem/QRSS"));
       o->end();
     } // Fl_Group* o
     { Fl_Group* o = new Fl_Group(200, 0, 600, 350, gettext("Modem/SCAMP"));

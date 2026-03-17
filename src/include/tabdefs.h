@@ -40,6 +40,7 @@
 #define TAB_WEFAX			_("Modem/Wefax")
 #define TAB_FELDHELL		_("Modem/Feld Hell")
 #define TAB_CW				_("Modem/CW/General")
+#define TAB_QRSS			_("Modem/QRSS")
 
 #define TAB_STATION			_("Operator-Station")
 

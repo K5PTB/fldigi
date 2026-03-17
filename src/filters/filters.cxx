@@ -381,7 +381,7 @@ void Cmovavg::reset()
 // making each phase-rotation coefficient have a  magnitude of slightly less than 
 // unity. E.g. 0.9999. 
 //
-// This then has to taken into account when the Nth sample is subtracted, because 
+// This then has to be taken into account when the Nth sample is subtracted, because 
 // the factor 0.9999 has been applied N times to the transform of this sample. 
 // The sample cannot therefore be directly subtracted, it must first be multiplied 
 // by the factor of 0.9999^N. This unfortunately means there is another multipli-

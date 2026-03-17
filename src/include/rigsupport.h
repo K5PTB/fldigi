@@ -105,9 +105,10 @@ extern void flrig_get_baud();
 extern void flrig_get_idles();
 extern void flrig_get_stopbits();
 
-//extern void flrig_cwio_ptt(int);
 extern void flrig_cwio_send_text(std::string);
 extern void flrig_fskio_send_text(std::string s);
+
+extern void flrig_key_state(int);
 
 // GPIO export/unexport pin #
 extern void export_gpio(int);

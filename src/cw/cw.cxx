@@ -51,8 +51,6 @@
 #include "digiscope.h"
 #include "waterfall.h"
 #include "fl_digi.h"
-#include "fftfilt.h"
-#include "serial.h"
 #include "ptt.h"
 #include "main.h"
 
@@ -63,7 +61,6 @@
 #include "status.h"
 #include "debug.h"
 #include "FTextRXTX.h"
-#include "modem.h"
 
 #include "qrunner.h"
 

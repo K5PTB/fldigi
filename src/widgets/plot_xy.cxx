@@ -24,6 +24,11 @@
 
 #include "plot_xy.h"
 
+#define PLOT_XY_DEFAULT_WIDTH	100
+#define PLOT_XY_DEFAULT_HEIGHT	100
+#define	PLOT_XY_MAX_LEN			57600 //8192
+#define PLOT_XY_NUM_GRIDS		100
+
 plot_xy::plot_xy (int X, int Y, int W, int H, const char *lbl) :
 	Fl_Widget (X, Y, W, H, lbl)
 {
@@ -39,40 +44,51 @@ plot_xy::plot_xy (int X, int Y, int W, int H, const char *lbl) :
 	_len_1 = PLOT_XY_MAX_LEN;
 	_len_2 = PLOT_XY_MAX_LEN;
 
-	buf_1 = new PLOT_XY[PLOT_XY_MAX_LEN];
-	buf_2 = new PLOT_XY[PLOT_XY_MAX_LEN];
+	buf_1.resize( PLOT_XY_MAX_LEN, { 0.0, 0.0 } );
+	buf_2.resize( PLOT_XY_MAX_LEN, { 0.0, 0.0 } );
 
 	xmin = 0; xmax = 10.0; x_graticule = 2.0;
 	ymin = 0; ymax = 10.0; y_graticule = 2.0;
 
-	x_legend = y_legend = true;
+	x_legend = y_legend = borders = false;
 	sx_legend.clear();
 	sy_legend.clear();
 
 	_show_1 = true;
-	_show_2 = true;
+	_show_2 = false;
+
+	xreverse = false;
 
 	_thick_lines = false;
 }
 
 plot_xy::~plot_xy()
 {
-	delete [] buf_1;
-	delete [] buf_2;
 }
 
-void plot_xy::data_1(PLOT_XY *data, int len)
+void plot_xy::clear(int n)
 {
-	if (data == 0 || len == 0) {
+	if (n == 1) {
 		for (int n = 0; n < PLOT_XY_MAX_LEN; n++) {
 			buf_1[n].x = 0;
 			buf_1[n].y = ymax * 2;
 		}
 		_len_1 = 0;
-	} else {
-		_len_1 = (len > PLOT_XY_MAX_LEN ) ? PLOT_XY_MAX_LEN : len;
-		for (int n = 0; n < _len_1; n++)
-			buf_1[PLOT_XY_MAX_LEN - _len_1 + n] = data[n];
+	}
+	if (n == 2) {
+		for (int n = 0; n < PLOT_XY_MAX_LEN; n++) {
+			buf_2[n].x = 0;
+			buf_2[n].y = ymax * 2;
+		}
+		_len_2 = 0;
+	}
+}
+
+void plot_xy::data_1(PLOT_XY *data, int len)
+{
+	_len_1 = (len > PLOT_XY_MAX_LEN ) ? PLOT_XY_MAX_LEN : len;
+	for (int n = 0; n < _len_1; n++) {
+		buf_1[PLOT_XY_MAX_LEN - _len_1 + n] = data[n];
 	}
 }
 
@@ -95,32 +111,36 @@ void plot_xy::draw()
 {
 	draw_box();
 
-	int X, Y, W, H;
-	X = x() + 2;
-	Y = y() + 2;
-	W = w() - 4;
-	H = h() - 4;
+	int X = x(), Y = y(), W = w(), H = h();
+
+	if (x_legend || y_legend) {
+		X += 2;
+		Y += 2;
+		W -= 4;
+		H -= 4;
+	}
 
 	fl_clip(X, Y, W, H);
 	fl_color(_bk_color);
 	fl_rectf(X, Y, W, H);
 
-	fl_push_matrix();
-
 	if (y_legend) {
 		X += 45;
 		W -= 50;
-	} else {
+	} else if (borders) {
 		X += 5;
 		W -= 10;
 	}
+
 	if (x_legend) {
 		Y += 10;
 		H -= 30;
-	} else {
+	} else if (borders) {
 		Y += 5;
 		H -= 10;
 	}
+
+	fl_push_matrix();
 
 	fl_translate( X, (Y + H));
 	fl_scale (1.0 * W / (xmax - xmin), -1.0 * H / (ymax - ymin));
@@ -146,15 +166,11 @@ void plot_xy::draw()
 
 // data
 	float xp, yp, xp1, yp1;
-	xp = 0; yp = 0;
-	xp1 = 1.0; yp1 = 1.0;
-
-	int xs = 0;
-
+	xp = yp = xp1 = yp1 = 0.0;
 
 // line 1
 	if (_show_1) {
-		xs = PLOT_XY_MAX_LEN - _len_1;
+		int xs = PLOT_XY_MAX_LEN - _len_1;
 		fl_color(_color_1);
 		yp = buf_1[xs].y;
 		xp = buf_1[xs].x;
@@ -169,7 +185,8 @@ void plot_xy::draw()
 				if (_thick_lines)
 					fl_line_style(FL_SOLID, 2, NULL);
 			}
-			if (yp > ymin && yp < ymax && yp1 > ymin && yp1 < ymax) {
+			if ( yp > ymin  && yp < ymax  && xp > xmin  && xp < xmax &&
+				 yp1 > ymin && yp1 < ymax && xp1 > xmin && xp1 < xmax ) {
 				fl_begin_line();
 				if (xreverse) {
 					fl_vertex(xmax - xp, yp - ymin);
@@ -186,7 +203,7 @@ void plot_xy::draw()
 
 // line 2
 	if (_show_2) {
-		xs = PLOT_XY_MAX_LEN - _len_2;
+		int xs = PLOT_XY_MAX_LEN - _len_2;
 		fl_color(_color_2);
 		yp = buf_2[xs].y;
 		xp = buf_2[xs].x;
@@ -201,7 +218,8 @@ void plot_xy::draw()
 				if (_thick_lines)
 					fl_line_style(FL_SOLID, 2, NULL);
 			}
-			if (yp > ymin && yp < ymax && yp1 > ymin && yp1 < ymax) {
+			if ( yp > ymin  && yp < ymax  && xp > xmin  && xp < xmax &&
+				 yp1 > ymin && yp1 < ymax && xp1 > xmin && xp1 < xmax ) {
 				fl_begin_line();
 				if (xreverse) {
 					fl_vertex(xmax - xp, yp - ymin);

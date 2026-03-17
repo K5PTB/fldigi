@@ -1585,7 +1585,7 @@ void do_qsy(bool dir)
 
 // qsy to the sweet spot frequency that is the center of the PBF in the rig
 		switch (md) {
-			case MODE_CW:
+			case MODE_CW: case MODE_QRSS:
 				m.carrier = progdefaults.CWsweetspot;
 				break;
 			case MODE_RTTY:
@@ -1609,7 +1609,7 @@ void do_qsy(bool dir)
 				m.carrier = progdefaults.PSKsweetspot;
 				break;
 		}
-		if (m.rmode.find("CW") != std::string::npos) {
+		if (m.rmode.find("CW") != std::string::npos || m.rmode.find("QRSS") != std::string::npos) {
 			if (wf->USB())
 				m.rfcarrier += (wfc - m.carrier);
 			else
@@ -1788,7 +1788,6 @@ void ampspan_cb(Fl_Widget *w, void *v) {
 	wf->wfdisp->Ampspan(val);
 	progdefaults.wfAmpSpan = val;
 	restoreFocus();
-std::cout << "span: " << val << std::endl;
 }
 
 void btnRev_cb(Fl_Widget *w, void *v)

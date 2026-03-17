@@ -57,6 +57,7 @@
 extern fftmon *fft_modem;
 
 #include "spectrum_viewer.h"
+#include "hwfall_viewer.h"
 
 #if BENCHMARK_MODE
 #  include "benchmark.h"
@@ -309,13 +310,12 @@ void trx_trx_receive_loop()
 					trxrb.read_advance(SCBLOCKSIZE);
 
 				size_t room = trxrb.get_wv(rbvec, numread);
-
 				if (room < numread) {
 					LOG_ERROR("trxrb.get_wv(rbvec) = %d, numread = %d", (int)room, (int)numread);
 				} else {
 			// convert to double and write to rb
-				for (size_t i = 0; i < numread; i++)
-					rbvec[0].buf[i] = fbuf[i];
+					for (size_t i = 0; i < numread; i++)
+						rbvec[0].buf[i] = fbuf[i];
 				}
 			}
 		}
@@ -345,6 +345,11 @@ void trx_trx_receive_loop()
 			QRUNNER_DROP(false);
 			progStatus.afconoff = afc;
 			active_modem->HistoryON(false);
+
+// does not work in high speed mode
+//			if (hwf_viewer::viewer && hwf_viewer::viewer->visible())
+//				hwf_viewer::rx_process(rbvec[0].buf, numread);
+
 		} else {
 			trxrb.write_advance(numread);
 
@@ -352,10 +357,14 @@ void trx_trx_receive_loop()
 
 			if (!trx_inhibit)
 				REQ(&waterfall::handle_sig_data, wf);
+
 			if (!bHistory) {
 				if (fft_modem && spectrum_viewer->visible())
 					fft_modem->rx_process(rbvec[0].buf, numread);
 				active_modem->rx_process(rbvec[0].buf, numread);
+
+				if (hwf_viewer::viewer && hwf_viewer::viewer->visible())
+					hwf_viewer::rx_process(rbvec[0].buf, numread);
 
 				if (audio_alert && progdefaults.mon_xcvr_audio) {
 					audio_alert->monitor(
@@ -707,6 +716,7 @@ void trx_start_modem_loop()
 			progStatus.kpsql_enabled &&
 			progStatus.psm_use_histogram)
 			psm_reset_histogram();
+		hwf_viewer::init();
 		return;
 	}
 
@@ -714,6 +724,9 @@ void trx_start_modem_loop()
 
 	new_modem->init();
 	active_modem = new_modem;
+
+	hwf_viewer::init();
+
 	if (new_freq) active_modem->set_freq(new_freq);
 //	if (progdefaults.retain_freq_lock) active_modem->tx_frequency = save_freq;
 	trx_state = STATE_RX;

@@ -60,6 +60,7 @@ public:
 	bool		get_scroll_hints(void) { return menu[RX_MENU_SCROLL_HINTS].value(); }
 	void		mark(FTextBase::TEXT_ATTR attr = CLICK_START);
 	void		clear(void);
+	void		query_clear(void);
 
 	void		setFont(Fl_Font f, int attr = NATTR);
 
@@ -93,10 +94,11 @@ protected:
 
 		RX_MENU_DIV,
 
-		RX_MENU_COPY,
-		RX_MENU_CLEAR,
 		RX_MENU_SELECT_ALL,
+		RX_MENU_COPY,
 		RX_MENU_SAVE,
+		RX_MENU_CLEAR,
+
 		RX_MENU_WRAP,
 
 		RX_MENU_ALL_ENTRY,

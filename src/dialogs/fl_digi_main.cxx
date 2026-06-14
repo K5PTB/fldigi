@@ -417,7 +417,11 @@ void create_fl_digi_main_primary() {
 	int H = main_hmin;
 	int xtmp = 0;
 
+#ifdef __APPLE__
+	fl_digi_main = new Fldigi_Main_Window( progStatus.mainX, progStatus.mainY, W, H);
+#else
 	fl_digi_main = new Fl_Double_Window( progStatus.mainX, progStatus.mainY, W, H);
+#endif
 
 		int lfont = progdefaults.MenuFontnbr;
 		int lsize = progdefaults.MenuFontsize;
@@ -3986,7 +3990,11 @@ void create_fl_digi_main_WF_only() {
 	Wwfall = W - 2 * DEFAULT_SW - 2 * pad;
 	WF_only_height = Hmenu + Hwfall + Hstatus + 4 * pad;
 
+#ifdef __APPLE__
+	fl_digi_main = new Fldigi_Main_Window(W, WF_only_height);
+#else
 	fl_digi_main = new Fl_Double_Window(W, WF_only_height);
+#endif
 
 		mnuFrame = new Fl_Group(0, 0, W, Hmenu);
 

@@ -1727,10 +1727,64 @@
         ELEM_(std::string, myAntenna, "MYANTENNA",                                      \
               "Antenna description (keep short!)",                                      \
               "")                                                                       \
-        /* Sound card */                                                                \
         ELEM_(std::string, operCall, "OPERCALL",                                        \
               "Operator call sign, if distinct from the station call MYCALL",           \
               "")                                                                       \
+        ELEM_(std::string, contestCall, "CONTESTCALL",                                  \
+              "Contest callsign",                                                       \
+              "")                                                                       \
+        ELEM_(std::string, contestOperators, "CONTESTOPERATORS",                        \
+              "Contest operators",                                                      \
+              "")                                                                       \
+        ELEM_(std::string, contestLocator, "CONTESTLOCATOR",                            \
+              "Contest locator",                                                        \
+              "")                                                                       \
+        ELEM_(std::string, contestClub, "CONTESTCLUB",                                  \
+              "Contest club",                                                           \
+              "")                                                                       \
+        ELEM_(std::string, contestName, "CONTESTNAME",                                  \
+              "Contest operator name",                                                  \
+              "")                                                                       \
+        ELEM_(std::string, contestAddress, "CONTESTADDRESS",                            \
+              "Contest address",                                                        \
+              "")                                                                       \
+        ELEM_(std::string, contestCity, "CONTESTCITY",                                  \
+              "Contest city",                                                           \
+              "")                                                                       \
+        ELEM_(std::string, contestPostalCode, "CONTESTPOSTALCODE",                      \
+              "Contest postal code",                                                    \
+              "")                                                                       \
+        ELEM_(std::string, contestEmail, "CONTESTEMAIL",                                \
+              "Contest email address",                                                  \
+              "")                                                                       \
+        ELEM_(std::string, contestSoapbox, "CONTESTSOAPBOX",                            \
+              "Contest soapbox",                                                        \
+              "")                                                                       \
+        ELEM_(std::string, contestDarcDok, "CONTESTDARCDOK",                            \
+              "Contest DARC DOK",                                                       \
+              "")                                                                       \
+        ELEM_(int, contestAssisted, "CONTESTASSISTED",                                  \
+              "Contest assisted category",                                              \
+              1)                                                                        \
+        ELEM_(int, contestBand, "CONTESTBAND",                                          \
+              "Contest band category",                                                  \
+              0)                                                                        \
+        ELEM_(int, contestMode, "CONTESTMODE",                                          \
+              "Contest mode category",                                                  \
+              1)                                                                        \
+        ELEM_(int, contestOperator, "CONTESTOPERATOR",                                  \
+              "Contest operator category",                                              \
+              2)                                                                        \
+        ELEM_(int, contestPower, "CONTESTPOWER",                                        \
+              "Contest power category",                                                 \
+              1)                                                                        \
+        ELEM_(int, contestStation, "CONTESTSTATION",                                    \
+              "Contest station category",                                               \
+              3)                                                                        \
+        ELEM_(int, contestTransmitter, "CONTESTTRANSMITTER",                            \
+              "Contest transmitter category",                                           \
+              1)                                                                        \
+        /* Sound card */                                                                \
         ELEM_(int, btnAudioIOis, "AUDIOIO",                                             \
               "Audio subsystem.  Values are as follows:\n"                              \
               "  0: OSS; 1: PortAudio; 2: PulseAudio; 3: File I/O",                     \

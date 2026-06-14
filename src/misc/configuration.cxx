@@ -524,6 +524,18 @@ int configuration::setDefaults()
 	inpMyQth->value(myQth.c_str());
 	inpMyLocator->value(myLocator.c_str());
 	inpMyAntenna->value(myAntenna.c_str());
+	inpContestCall->value(contestCall.c_str());
+	inpContestOperators->value(contestOperators.c_str());
+	inpContestLocator->value(contestLocator.c_str());
+	inpContestClub->value(contestClub.c_str());
+	inpContestName->value(contestName.c_str());
+	inpContestAddress->value(contestAddress.c_str());
+	inpContestCity->value(contestCity.c_str());
+	inpContestPostalCode->value(contestPostalCode.c_str());
+	inpContestEmail->value(contestEmail.c_str());
+	inpContestSoapbox->value(contestSoapbox.c_str());
+	inpContestDarcDok->value(contestDarcDok.c_str());
+	choiceContestPower->value(contestPower);
 	UseLeadingZeros = btnUseLeadingZeros->value();
 	ContestStart = (int)nbrContestStart->value();
 	ContestDigits = (int)nbrContestDigits->value();

@@ -57,6 +57,7 @@ enum logtype {
   LOG_CQ_WPX,		// CQ WPX
   LOG_CQWW_DX,		// CQ WW Dx
   LOG_CQWW_RTTY,	// CQ WW RTTY
+  LOG_DARC_HELL_SPRINT,	// DARC Hell Sprint
   LOG_IARI,			// Italian ARI International DX
   LOG_NAQP,			// North American QSO Party
   LOG_NAS,			// North American Sprint

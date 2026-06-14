@@ -377,6 +377,7 @@ CONTESTS contests[] = {
 { "CQ WPX", "CALL SERNO, COUNTRY, RSTr, RSTs" },
 { "CQ WW DX", "CALL COUNTRY, ZONE, RSTr, RSTs" },
 { "CQ WW DX RTTY", "CALL STATE, COUNTRY, ZONE, RSTr" },
+{ "DARC-Hell-Sprint", "CALL EXCHANGE" },
 { "Italian A.R.I. International DX", "CALL PR(ovince), COUNTRY, SERNO, RSTr, RSTs" },
 { "NAQP", "CALL NAME, STATE / VE_PROV / COUNTRY" },
 { "NA Sprint", "CALL SERNO, STATE / VE_PROV / COUNTRY, NAME, RSTr, RSTs" },
@@ -657,4 +658,3 @@ void adjust_for_contest(void *)
 //		  << "Notes:   " << QSOparties.qso_parties[n].notes << std::endl;
 
 }
-

@@ -1227,6 +1227,7 @@ int FTextRX::handle_qso_data(int start, int end)
 					set_serno_in(str);
 					break;
 				}
+			case LOG_DARC_HELL_SPRINT:
 			case LOG_GENERIC:
 			default:
 			// EXCHANGE
@@ -1439,6 +1440,7 @@ void FTextRX::handle_context_menu(void)
 			show_item(RX_MENU_XCHG);
 			show_item(RX_MENU_RST_IN);
 			break;
+		case LOG_DARC_HELL_SPRINT:
 		case LOG_GENERIC:
 		default:
 			show_item(RX_MENU_SERIAL);

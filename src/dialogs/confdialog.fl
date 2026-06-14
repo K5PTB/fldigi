@@ -2351,7 +2351,16 @@ progdefaults.changed = true;}}
     } {
       Fl_Group listbox_contest {
         label Contest
-        callback {progdefaults.logging = o->index();
+        callback {int index = o->index();
+if (index < 0)
+  return;
+for (int i = 0; ; i++) {
+  if (contests[i].name.empty())
+    return;
+  if (i == index)
+    break;
+}
+progdefaults.logging = index;
 if (contests[progdefaults.logging].name == "State QSO parties") {
   progdefaults.CONTESTnotes = QSOparties.qso_parties[progdefaults.SQSOcontest].notes;
   progdefaults.SQSOinstate = (QSOparties.qso_parties[progdefaults.SQSOcontest].instate[0] == 'T');
@@ -2373,6 +2382,8 @@ progdefaults.changed = true;} open
       Fl_Group listbox_QP_contests {
         label {State QSO Party}
         callback {int n = o->index();
+if (progdefaults.logging < 0 || contests[progdefaults.logging].name.empty())
+  return;
 progdefaults.SQSOcontest = n;
 progdefaults.SQSOinstate = (QSOparties.qso_parties[n].instate[0] == 'T');
 if (contests[progdefaults.logging].name == "State QSO parties") {
@@ -2535,6 +2546,177 @@ progdefaults.changed = true;}
           }
         }
       }
+    }
+    Fl_Group grpContestDetails {
+      label {Contests/Info}
+      xywh {200 0 600 350} box ENGRAVED_BOX color 50 align 21 hide
+      code0 {CONFIG_PAGE *p = new CONFIG_PAGE(o, _("Contests/Info"));}
+      code1 {config_pages.push_back(p);}
+      code2 {tab_tree->add(_("Contests/Info"));}
+    } {
+      Fl_Input inpContestCall {
+        label {Contest Call:}
+        callback {progdefaults.contestCall = o->value();
+progdefaults.changed = true;}
+        tooltip {Contest callsign} xywh {386 35 320 24}
+        code0 {o->labelsize(FL_NORMAL_SIZE);}
+        code1 {o->value(progdefaults.contestCall.c_str());}
+        class Fl_Input2
+      }
+      Fl_Input inpContestOperators {
+        label {Operators:}
+        callback {progdefaults.contestOperators = o->value();
+progdefaults.changed = true;}
+        tooltip {Contest operators} xywh {386 63 320 24}
+        code0 {o->labelsize(FL_NORMAL_SIZE);}
+        code1 {o->value(progdefaults.contestOperators.c_str());}
+        class Fl_Input2
+      }
+      Fl_Input inpContestLocator {
+        label {Locator:}
+        callback {progdefaults.contestLocator = o->value();
+progdefaults.changed = true;}
+        tooltip {Contest locator} xywh {386 91 320 24}
+        code0 {o->labelsize(FL_NORMAL_SIZE);}
+        code1 {o->value(progdefaults.contestLocator.c_str());}
+        class Fl_Input2
+      }
+      Fl_Input inpContestClub {
+        label {Club:}
+        callback {progdefaults.contestClub = o->value();
+progdefaults.changed = true;}
+        tooltip {Contest club} xywh {386 119 320 24}
+        code0 {o->labelsize(FL_NORMAL_SIZE);}
+        code1 {o->value(progdefaults.contestClub.c_str());}
+        class Fl_Input2
+      }
+      Fl_Input inpContestName {
+        label {Name:}
+        callback {progdefaults.contestName = o->value();
+progdefaults.changed = true;}
+        tooltip {Contest operator name} xywh {386 147 320 24}
+        code0 {o->labelsize(FL_NORMAL_SIZE);}
+        code1 {o->value(progdefaults.contestName.c_str());}
+        class Fl_Input2
+      }
+      Fl_Input inpContestAddress {
+        label {Address:}
+        callback {progdefaults.contestAddress = o->value();
+progdefaults.changed = true;}
+        tooltip {Contest address} xywh {386 175 320 24}
+        code0 {o->labelsize(FL_NORMAL_SIZE);}
+        code1 {o->value(progdefaults.contestAddress.c_str());}
+        class Fl_Input2
+      }
+      Fl_Input inpContestCity {
+        label {City:}
+        callback {progdefaults.contestCity = o->value();
+progdefaults.changed = true;}
+        tooltip {Contest city} xywh {386 203 320 24}
+        code0 {o->labelsize(FL_NORMAL_SIZE);}
+        code1 {o->value(progdefaults.contestCity.c_str());}
+        class Fl_Input2
+      }
+      Fl_Input inpContestPostalCode {
+        label {Postalcode:}
+        callback {progdefaults.contestPostalCode = o->value();
+progdefaults.changed = true;}
+        tooltip {Contest postal code} xywh {386 231 320 24}
+        code0 {o->labelsize(FL_NORMAL_SIZE);}
+        code1 {o->value(progdefaults.contestPostalCode.c_str());}
+        class Fl_Input2
+      }
+      Fl_Input inpContestEmail {
+        label {eMail:}
+        callback {progdefaults.contestEmail = o->value();
+progdefaults.changed = true;}
+        tooltip {Contest email address} xywh {386 259 320 24}
+        code0 {o->labelsize(FL_NORMAL_SIZE);}
+        code1 {o->value(progdefaults.contestEmail.c_str());}
+        class Fl_Input2
+      }
+      Fl_Input inpContestDarcDok {
+        label {DARC DOK:}
+        callback {progdefaults.contestDarcDok = o->value();
+progdefaults.changed = true;}
+        tooltip {Contest DARC DOK} xywh {386 287 320 24}
+        code0 {o->labelsize(FL_NORMAL_SIZE);}
+        code1 {o->value(progdefaults.contestDarcDok.c_str());}
+        class Fl_Input2
+      }
+      Fl_Input inpContestSoapbox {
+        label {SOAPBOX:}
+        callback {progdefaults.contestSoapbox = o->value();
+progdefaults.changed = true;}
+        tooltip {Contest soapbox} xywh {386 315 320 24}
+        code0 {o->labelsize(FL_NORMAL_SIZE);}
+        code1 {o->value(progdefaults.contestSoapbox.c_str());}
+        class Fl_Input2
+      }
+    }
+    Fl_Group {} {
+      label {Contests/Categories}
+      xywh {200 0 600 350} box ENGRAVED_BOX align 21 hide
+      code0 {CONFIG_PAGE *p = new CONFIG_PAGE(o, _("Contests/Categories"));}
+      code1 {config_pages.push_back(p);}
+      code2 {tab_tree->add(_("Contests/Categories"));}
+    } {
+      Fl_Choice choiceContestOperator {
+        label {CATEGORY-OPERATOR:}
+        callback {progdefaults.contestOperator = o->value();
+progdefaults.changed = true;} open
+        tooltip {Contest operator category} xywh {386 53 320 24} down_box BORDER_BOX
+        code0 {o->add("CHECKLOG|MULTI-OP|SINGLE-OP");}
+        code1 {o->value(progdefaults.contestOperator);}
+      } {}
+      Fl_Choice choiceContestTransmitter {
+        label {CATEGORY-TRANSMITTER:}
+        callback {progdefaults.contestTransmitter = o->value();
+progdefaults.changed = true;} open
+        tooltip {Contest transmitter category} xywh {386 84 320 24} down_box BORDER_BOX
+        code0 {o->add("LIMITED|ONE|SWL|TWO|UNLIMITED");}
+        code1 {o->value(progdefaults.contestTransmitter);}
+      } {}
+      Fl_Choice choiceContestAssisted {
+        label {CATEGORY-ASSISTED:}
+        callback {progdefaults.contestAssisted = o->value();
+progdefaults.changed = true;} open
+        tooltip {Contest assisted category} xywh {386 115 320 24} down_box BORDER_BOX
+        code0 {o->add("ASSISTED|NON-ASSISTED");}
+        code1 {o->value(progdefaults.contestAssisted);}
+      } {}
+      Fl_Choice choiceContestBand {
+        label {CATEGORY-BAND:}
+        callback {progdefaults.contestBand = o->value();
+progdefaults.changed = true;} open
+        tooltip {Contest band category} xywh {386 146 320 24} down_box BORDER_BOX
+        code0 {o->add("ALL|160M|80M|40M|20M|15M|10M|6M|4M|2M|222|432|902|1.2G|2.3G|3.4G|5.7G|10G|24G|47G|75G|122G|134G|Light|VHF-3-BAND|VHF-FM-ONLY");}
+        code1 {o->value(progdefaults.contestBand);}
+      } {}
+      Fl_Choice choiceContestPower {
+        label {CATEGORY-POWER:}
+        callback {progdefaults.contestPower = o->value();
+progdefaults.changed = true;} open
+        tooltip {Contest power category} xywh {386 177 320 24} down_box BORDER_BOX
+        code0 {o->add("HIGH|LOW|QRP");}
+        code1 {o->value(progdefaults.contestPower);}
+      } {}
+      Fl_Choice choiceContestMode {
+        label {CATEGORY-MODE:}
+        callback {progdefaults.contestMode = o->value();
+progdefaults.changed = true;} open
+        tooltip {Contest mode category} xywh {386 208 320 24} down_box BORDER_BOX
+        code0 {o->add("CW|DIGI|FM|MIXED|RTTY|SSB");}
+        code1 {o->value(progdefaults.contestMode);}
+      } {}
+      Fl_Choice choiceContestStation {
+        label {CATEGORY-STATION:}
+        callback {progdefaults.contestStation = o->value();
+progdefaults.changed = true;} open
+        tooltip {Contest station category} xywh {386 239 320 24} down_box BORDER_BOX
+        code0 {o->add("DISTRIBUTED|EXPEDITION|EXPLORER|FIXED|HQ|MOBILE|PORTABLE|ROVER|ROVER-LIMITED|ROVER-UNLIMITED|SCHOOL");}
+        code1 {o->value(progdefaults.contestStation);}
+      } {}
     }
     Fl_Group {} {
       label {Contests/Field Day}

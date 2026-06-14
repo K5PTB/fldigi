@@ -25,6 +25,7 @@
 #include <config.h>
 
 #include <string>
+#include <cctype>
 #include <cstring>
 #include <cstdlib>
 #include <ctime>
@@ -32,7 +33,10 @@
 #include <sys/stat.h>
 #include <stdio.h>
 #include <fstream>
+#include <set>
+#include <sstream>
 #include <vector>
+#include <algorithm>
 
 #include "main.h"
 #include "trx.h"
@@ -59,6 +63,7 @@
 #include "locator.h"
 #include "icons.h"
 #include "gettext.h"
+#include "util.h"
 #include "qrunner.h"
 #include "flmisc.h"
 
@@ -1206,6 +1211,7 @@ void activateButtons()
 		bUpdateCancel->label(_("Cancel"));
 		bUpdateCancel->activate();
 		bDelete->deactivate ();
+		bClearLogbook->deactivate();
 		bSearchNext->deactivate ();
 		bSearchPrev->deactivate ();
 		inpDate_log->take_focus();
@@ -1213,6 +1219,7 @@ void activateButtons()
 	}
 	bNewSave->label(_("New"));
 	bUpdateCancel->label(_("Update"));
+	bClearLogbook->activate();
 	if (qsodb.nbrRecs() > 0) {
 		bDelete->activate();
 		bUpdateCancel->activate();
@@ -1253,6 +1260,21 @@ void cb_btnUpdateCancel(Fl_Button* b, void* d) {
 
 void cb_btnDelete(Fl_Button* b, void* d) {
 	deleteRecord();
+	wBrowser->take_focus();
+}
+
+void cb_btnClearLogbook(Fl_Button* b, void* d) {
+	if (fl_choice2(_("Really clear all records from this logbook?"),
+		       _("Yes"), _("No"), NULL))
+		return;
+
+	qsodb.deleteRecs();
+	dxcc_entity_cache_clear();
+	wBrowser->clear();
+	clearRecord();
+	adjustBrowser(false);
+	activateButtons();
+	adifFile.writeFile(logbook_filename.c_str(), &qsodb);
 	wBrowser->take_focus();
 }
 
@@ -2066,7 +2088,7 @@ const char *szContests[] =
 	"BARTG-RTTY", "BARTG-SPRINT",
 	"CQ-160-CW", "CQ-160-SSB", "CQ-WPX-CW", "CQ-WPX-RTTY", "CQ-WPX-SSB", "CQ-VHF",
 	"CQ-WW-CW", "CQ-WW-RTTY", "CQ-WW-SSB",
-	"DARC-WAEDC-CW", "DARC-WAEDC-RTTY", "DARC-WAEDC-SSB",
+	"DARC-HELL-SPRINT", "DARC-WAEDC-CW", "DARC-WAEDC-RTTY", "DARC-WAEDC-SSB",
 	"FCG-FQP", "IARU-HF", "JIDX-CW", "JIDX-SSB",
 	"NAQP-CW", "NAQP-RTTY", "NAQP-SSB", "NA-SPRINT-CW", "NA-SPRINT-SSB", "NCCC-CQP",
 	"NEQP", "OCEANIA-DX-CW", "OCEANIA-DX-SSB", "RDXC", "RSGB-IOTA",
@@ -2080,7 +2102,7 @@ enum icontest {
 	BARTG_RTTY, BARTG_SPRINT,
 	CQ_160_CW, CQ_160_SSB, CQ_WPX_CW, CQ_WPX_RTTY, CQ_WPX_SSB, CQ_VHF,
 	CQ_WW_CW, CQ_WW_RTTY, CQ_WW_SSB,
-	DARC_WAEDC_CW, DARC_WAEDC_RTTY, DARC_WAEDC_SSB,
+	DARC_HELL_SPRINT, DARC_WAEDC_CW, DARC_WAEDC_RTTY, DARC_WAEDC_SSB,
 	FCG_FQP, IARU_HF, JIDX_CW, JIDX_SSB,
 	NAQP_CW, NAQP_RTTY, NAQP_SSB, NA_SPRINT_CW, NA_SPRINT_SSB, NCCC_CQP,
 	NEQP, OCEANIA_DX_CW, OCEANIA_DX_SSB, RDXC, RSGB_IOTA,
@@ -2089,6 +2111,13 @@ enum icontest {
 
 bool bInitCombo = true;
 icontest contestnbr;
+
+static int default_cabrillo_contest()
+{
+	if (progdefaults.logging == LOG_DARC_HELL_SPRINT)
+		return DARC_HELL_SPRINT;
+	return AP_SPRINT;
+}
 
 void setContestType()
 {
@@ -2132,9 +2161,10 @@ void setContestType()
 		case OCEANIA_DX_CW :
 		case OCEANIA_DX_SSB :
     	    break;
-    	case DARC_WAEDC_CW :
-    	case DARC_WAEDC_RTTY :
-    	case DARC_WAEDC_SSB :
+		case DARC_WAEDC_CW :
+		case DARC_WAEDC_RTTY :
+		case DARC_WAEDC_SSB :
+		case DARC_HELL_SPRINT :
     		break;
     	case NAQP_CW :
     	case NAQP_RTTY :
@@ -2162,7 +2192,8 @@ void cb_Export_Cabrillo(Fl_Menu_* m, void* d) {
 			indx++;
 		}
 	}
-	cboContest->index(0);
+	cboContest->index(default_cabrillo_contest());
+	setContestType();
 	chkCabBrowser->clear();
 #ifdef __APPLE__
 	chkCabBrowser->textfont(FL_SCREEN_BOLD);
@@ -2177,12 +2208,59 @@ void cb_Export_Cabrillo(Fl_Menu_* m, void* d) {
 		snprintf(line,sizeof(line),"%8s %4s %-10s %-10s %-s",
  			rec->getField(QSO_DATE),
  			time4(rec->getField(TIME_OFF)),
- 			rec->getField(CALL),
+			rec->getField(CALL),
 			szfreq(rec->getField(FREQ)),
 			adif2export(rec->getField(ADIF_MODE)).c_str() );
         chkCabBrowser->add(line);
 	}
+	chkCabBrowser->check_all();
 	wCabrillo->show();
+}
+
+static std::string cabrillo_upper(std::string s)
+{
+	for (size_t i = 0; i < s.length(); i++)
+		s[i] = toupper(static_cast<unsigned char>(s[i]));
+	return s;
+}
+
+static std::string cabrillo_mode(std::string mode)
+{
+	mode = cabrillo_upper(mode);
+	if (contestnbr == DARC_HELL_SPRINT && mode.find("HELL") != std::string::npos)
+		return "DG";
+	if (mode.compare("USB") == 0 || mode.compare("LSB") == 0 ||
+		mode.compare("FM") == 0 ||
+		mode.compare("SSB") == 0 || mode.compare("PH") == 0)
+		return "PH";
+	if (mode.compare("RTTY") == 0)
+		return "RY";
+	return mode;
+}
+
+static std::string cabrillo_contest_call()
+{
+	if (contestnbr == DARC_HELL_SPRINT)
+		return progdefaults.contestCall;
+	return progdefaults.contestCall.empty() ? progdefaults.myCall : progdefaults.contestCall;
+}
+
+static std::string cabrillo_qso_sort_key(cQsoRec *rec)
+{
+	std::string date = rec->getField(progdefaults.sort_date_time_off ? QSO_DATE_OFF : QSO_DATE);
+	std::string time = rec->getField(progdefaults.sort_date_time_off ? TIME_OFF : TIME_ON);
+
+	if (date.empty())
+		date = rec->getField(QSO_DATE);
+	if (time.empty())
+		time = rec->getField(TIME_ON);
+
+	if (time.length() < 4)
+		time = time4(time.c_str());
+	else if (time.length() > 4)
+		time = time.substr(0, 4);
+
+	return date + time;
 }
 
 void cabrillo_append_qso (FILE *fp, cQsoRec *rec)
@@ -2205,28 +2283,31 @@ void cabrillo_append_qso (FILE *fp, cQsoRec *rec)
 	}
 
 	if (btnCabMode->value()) {
-		mode = adif2export(rec->getField(ADIF_MODE));
-		if (mode.compare("USB") == 0 || mode.compare("LSB") == 0 ||
-			mode.compare("FM") == 0 ||
-			mode.compare("SSB") == 0 || mode.compare("PH") == 0 ) mode = "PH";
-		else if (mode.compare("RTTY") == 0) mode = "RY";
+		mode = cabrillo_mode(adif2export(rec->getField(ADIF_MODE)));
 		if (mode.length() < 10) mode.append(10 - mode.length(), ' ');
 		qsoline.append(mode).append(" ");
 	}
 
 	if (btnCabQSOdate->value()) {
 		date = rec->getField(progdefaults.sort_date_time_off ? QSO_DATE_OFF : QSO_DATE);
-		date.insert(4,"-");
-		date.insert(7,"-");
+		if (date.length() < 8)
+			date = rec->getField(QSO_DATE);
+		if (date.length() >= 8) {
+			date = date.substr(0, 8);
+			date.insert(4,"-");
+			date.insert(7,"-");
+		}
 		qsoline.append(date).append(" ");
 	}
 
 	if (btnCabTimeOFF->value()) {
 		time = rec->getField(progdefaults.sort_date_time_off ? TIME_OFF : TIME_ON);
+		if (time.empty())
+			time = rec->getField(TIME_ON);
 		qsoline.append(time4(time.c_str())).append(" ");
 	}
 
-	mycall = progdefaults.myCall;
+	mycall = cabrillo_contest_call();
 	if (mycall.length() > 13) mycall = mycall.substr(0,13);
 	len = mycall.length();
 	if (len < 13) mycall.append(13 - len, ' ');
@@ -2292,7 +2373,7 @@ void cabrillo_append_qso (FILE *fp, cQsoRec *rec)
 		exch = rec->getField(XCHG1);
 		while ((p = exch.find(":")) != std::string::npos) exch.erase(p,1);
 		while ((p = exch.find("  ")) != std::string::npos) exch.erase(p,1);
-		if (exch[0] == ' ') exch.erase(0,1);
+		if (!exch.empty() && exch[0] == ' ') exch.erase(0,1);
 		exch_in.append(exch);
 	}
 
@@ -2318,11 +2399,96 @@ void cabrillo_append_qso (FILE *fp, cQsoRec *rec)
 	return;
 }
 
+static std::string cabrillo_qtc_file()
+{
+	std::string fn = LogsDir.empty() ? HomeDir : LogsDir;
+	if (!fn.empty() && *fn.rbegin() != PATH_SEP[0])
+		fn.append(PATH_SEP);
+	fn.append("qtc-log.tsv");
+	return fn;
+}
+
+static std::string cabrillo_qtc_date(std::string date)
+{
+	if (date.length() == 8) {
+		date.insert(4, "-");
+		date.insert(7, "-");
+	}
+	return date;
+}
+
+static void cabrillo_append_qtc(FILE *fp, const std::string& first_date, const std::string& last_date)
+{
+	(void)first_date;
+	(void)last_date;
+
+	std::ifstream in(cabrillo_qtc_file().c_str());
+	if (!in)
+		return;
+
+	std::set<std::string> written;
+	std::string line;
+	while (std::getline(in, line)) {
+		if (line.empty() || line[0] == '#')
+			continue;
+
+		std::istringstream ls(line);
+		std::vector<std::string> f;
+		std::string tok;
+		while (std::getline(ls, tok, '\t'))
+			f.push_back(tok);
+		if (f.size() < 11)
+			continue;
+
+		const std::string& freq = f[1];
+		std::string mode = cabrillo_mode(f[2]);
+		const std::string& date = f[3];
+		const std::string& time = f[4];
+		std::string direction = cabrillo_upper(f[0]);
+		std::string received_by = f[5];
+		const std::string& group = f[6];
+		std::string sent_by = f[7];
+		const std::string& qso_time = f[8];
+		const std::string& qso_call = f[9];
+		const std::string& qso_nr = f[10];
+
+		if (contestnbr == DARC_HELL_SPRINT) {
+			std::string own_call = cabrillo_contest_call();
+			if (direction == "TX")
+				sent_by = own_call;
+			else if (direction == "RX")
+				received_by = own_call;
+		}
+
+		std::string key = received_by + "|" + group + "|" + sent_by + "|" +
+			qso_time + "|" + qso_call + "|" + qso_nr;
+		if (written.find(key) != written.end())
+			continue;
+		written.insert(key);
+
+		fprintf(fp, "QTC: %6s %-5s %-10s %4s %-13s %-10s %-13s %4s %-13s %s\n",
+			freq.c_str(),
+			mode.c_str(),
+			cabrillo_qtc_date(date).c_str(),
+			time.c_str(),
+			received_by.c_str(),
+			group.c_str(),
+			sent_by.c_str(),
+			qso_time.c_str(),
+			qso_call.c_str(),
+			qso_nr.c_str());
+	}
+}
+
 void WriteCabrillo()
 {
+	if (chkCabBrowser->nchecked() == 0)
+		chkCabBrowser->check_all();
 	if (chkCabBrowser->nchecked() == 0) return;
 
 	cQsoRec *rec;
+	std::string first_qtc_date;
+	std::string last_qtc_date;
 
 	std::string title = _("Create cabrillo report");
 	std::string filters = "TEXT\t*.txt";
@@ -2336,24 +2502,104 @@ void WriteCabrillo()
 	if (!p) return;
 	if (!*p) return;
 
-	for (int i = 0; i < chkCabBrowser->FLTK_nitems(); i++) {
-		if (chkCabBrowser->checked(i + 1)) {
-			rec = qsodb.getRec(i);
-			rec->putField(EXPORT, "E");
-			qsodb.qsoUpdRec (i, rec);
-		}
-	}
-
 	std::string sp = p;
 	if (sp.find(".txt") == std::string::npos) sp.append(".txt");
-    FILE *cabFile = fl_fopen (p, "w");
+    FILE *cabFile = fl_fopen (sp.c_str(), "w");
     if (!cabFile)
         return;
 
     strContest = cboContest->value();
     contestnbr = (icontest)cboContest->index();
 
-	fprintf (cabFile,
+	static const char *contest_assisted_values[] = {
+		"ASSISTED", "NON-ASSISTED"
+	};
+	static const char *contest_band_values[] = {
+		"ALL", "160M", "80M", "40M", "20M", "15M", "10M", "6M",
+		"4M", "2M", "222", "432", "902", "1.2G", "2.3G", "3.4G",
+		"5.7G", "10G", "24G", "47G", "75G", "122G", "134G", "Light",
+		"VHF-3-BAND", "VHF-FM-ONLY"
+	};
+	static const char *contest_mode_values[] = {
+		"CW", "DIGI", "FM", "MIXED", "RTTY", "SSB"
+	};
+	static const char *contest_operator_values[] = {
+		"CHECKLOG", "MULTI-OP", "SINGLE-OP"
+	};
+	static const char *contest_power_values[] = {
+		"HIGH", "LOW", "QRP"
+	};
+	static const char *contest_station_values[] = {
+		"DISTRIBUTED", "EXPEDITION", "EXPLORER", "FIXED", "HQ", "MOBILE",
+		"PORTABLE", "ROVER", "ROVER-LIMITED", "ROVER-UNLIMITED", "SCHOOL"
+	};
+	static const char *contest_transmitter_values[] = {
+		"LIMITED", "ONE", "SWL", "TWO", "UNLIMITED"
+	};
+
+#define CONTEST_CATEGORY_VALUE(values, index, fallback) \
+	(((index) >= 0 && (index) < static_cast<int>(sizeof(values) / sizeof((values)[0]))) ? \
+		(values)[index] : (values)[fallback])
+
+	const char *contest_assisted = CONTEST_CATEGORY_VALUE(contest_assisted_values, progdefaults.contestAssisted, 1);
+	const char *contest_band = CONTEST_CATEGORY_VALUE(contest_band_values, progdefaults.contestBand, 0);
+	const char *contest_mode = CONTEST_CATEGORY_VALUE(contest_mode_values, progdefaults.contestMode, 1);
+	const char *contest_operator = CONTEST_CATEGORY_VALUE(contest_operator_values, progdefaults.contestOperator, 2);
+	const char *contest_power = CONTEST_CATEGORY_VALUE(contest_power_values, progdefaults.contestPower, 1);
+	const char *contest_station = CONTEST_CATEGORY_VALUE(contest_station_values, progdefaults.contestStation, 3);
+	const char *contest_transmitter = CONTEST_CATEGORY_VALUE(contest_transmitter_values, progdefaults.contestTransmitter, 1);
+
+	std::string contest_call = cabrillo_contest_call();
+	std::string contest_operators = contestnbr == DARC_HELL_SPRINT ?
+		progdefaults.contestOperators :
+		(progdefaults.contestOperators.empty() ? contest_call : progdefaults.contestOperators);
+
+	if (contestnbr == DARC_HELL_SPRINT) {
+		fprintf(cabFile,
+"START-OF-LOG: 3.0\n\
+CREATED-BY: %s %s\n\
+CONTEST: %s\n\
+GRID-LOCATOR: %s\n\
+CALLSIGN: %s\n\
+CATEGORY-OPERATOR: %s\n\
+CATEGORY-TRANSMITTER: %s\n\
+CATEGORY-ASSISTED: %s\n\
+CATEGORY-BAND: %s\n\
+CATEGORY-POWER: %s\n\
+CATEGORY-MODE: %s\n\
+CATEGORY-STATION: %s\n\
+CLAIMED-SCORE: \n\
+OPERATORS: %s\n\
+CLUB: %s\n\
+NAME: %s\n\
+ADDRESS: %s\n\
+ADDRESS-CITY: %s\n\
+ADDRESS-POSTALCODE: %s\n\
+EMAIL: %s\n\
+SPECIFIC: %s\n\
+SOAPBOX: %s\n",
+			PACKAGE_NAME, PACKAGE_VERSION,
+			strContest.c_str(),
+			progdefaults.contestLocator.c_str(),
+			contest_call.c_str(),
+			contest_operator,
+			contest_transmitter,
+			contest_assisted,
+			contest_band,
+			contest_power,
+			contest_mode,
+			contest_station,
+			contest_operators.c_str(),
+			progdefaults.contestClub.c_str(),
+			progdefaults.contestName.c_str(),
+			progdefaults.contestAddress.c_str(),
+			progdefaults.contestCity.c_str(),
+			progdefaults.contestPostalCode.c_str(),
+			progdefaults.contestEmail.c_str(),
+			progdefaults.contestDarcDok.c_str(),
+			progdefaults.contestSoapbox.c_str());
+	} else {
+		fprintf (cabFile,
 "START-OF-LOG: 3.0\n\
 CREATED-BY: %s %s\n\
 \n\
@@ -2367,13 +2613,13 @@ CATEGORY-ASSISTED: \n\
 CATEGORY-BAND: \n\
 \n\
 # Mode: SSB, CW, RTTY, MIXED \n\
-CATEGORY-MODE: \n\
+CATEGORY-MODE: %s\n\
 \n\
 # Operator: SINGLE-OP, MULTI-OP, CHECKLOG \n\
 CATEGORY-OPERATOR: \n\
 \n\
 # Power: HIGH, LOW, QRP \n\
-CATEGORY-POWER: \n\
+CATEGORY-POWER: %s\n\
 \n\
 # Station: FIXED, MOBILE, PORTABLE, ROVER, EXPEDITION, HQ, SCHOOL \n\
 CATEGORY-STATION: \n\
@@ -2391,55 +2637,104 @@ CATEGORY-OVERLAY: \n\
 CLAIMED-SCORE: \n\
 \n\
 # Name of the radio club with which the score should be aggregated.\n\
-CLUB: \n\
+CLUB: %s\n\
 \n\
 # Contest: AP-SPRINT, ARRL-10, ARRL-160, ARRL-DX-CW, ARRL-DX-SSB, ARRL-SS-CW,\n\
 # ARRL-SS-SSB, ARRL-UHF-AUG, ARRL-VHF-JAN, ARRL-VHF-JUN, ARRL-VHF-SEP,\n\
 # ARRL-RTTY, BARTG-RTTY, CQ-160-CW, CQ-160-SSB, CQ-WPX-CW, CQ-WPX-RTTY,\n\
-# CQ-WPX-SSB, CQ-VHF, CQ-WW-CW, CQ-WW-RTTY, CQ-WW-SSB, DARC-WAEDC-CW,\n\
-# DARC-WAEDC-RTTY, DARC-WAEDC-SSB, FCG-FQP, IARU-HF, JIDX-CW, JIDX-SSB,\n\
+# CQ-WPX-SSB, CQ-VHF, CQ-WW-CW, CQ-WW-RTTY, CQ-WW-SSB, DARC-HELL-SPRINT,\n\
+# DARC-WAEDC-CW, DARC-WAEDC-RTTY, DARC-WAEDC-SSB, FCG-FQP, IARU-HF, JIDX-CW, JIDX-SSB,\n\
 # NAQP-CW, NAQP-RTTY, NAQP-SSB, NA-SPRINT-CW, NA-SPRINT-SSB, NCCC-CQP,\n\
 # NEQP, OCEANIA-DX-CW, OCEANIA-DX-SSB, RDXC, RSGB-IOTA, SAC-CW, SAC-SSB,\n\
 # STEW-PERRY, TARA-RTTY \n\
 CONTEST: %s\n\
 \n\
 # Optional email address\n\
-EMAIL: \n\
+EMAIL: %s\n\
 \n\
 LOCATION: \n\
 \n\
+SPECIFIC: %s\n\
+\n\
 # Operator name\n\
-NAME: \n\
+NAME: %s\n\
 \n\
 # Maximum 4 address lines.\n\
-ADDRESS: \n\
+ADDRESS: %s\n\
 ADDRESS: \n\
 ADDRESS: \n\
 ADDRESS: \n\
 \n\
 # A space-delimited list of operator callsign(s). \n\
-OPERATORS: \n\
+OPERATORS: %s\n\
 \n\
 # Offtime yyyy-mm-dd nnnn yyyy-mm-dd nnnn \n\
 # OFFTIME: \n\
 \n\
 # Soapbox comments.\n\
-SOAPBOX: \n\
+SOAPBOX: %s\n\
 SOAPBOX: \n\
 SOAPBOX: \n\n",
 		PACKAGE_NAME, PACKAGE_VERSION,
-		progdefaults.myCall.c_str(),
-		strContest.c_str() );
+		contest_call.c_str(),
+		"",
+		contest_power,
+		progdefaults.contestClub.c_str(),
+		strContest.c_str(),
+		progdefaults.contestEmail.c_str(),
+		progdefaults.contestDarcDok.c_str(),
+		progdefaults.contestName.c_str(),
+		progdefaults.contestAddress.c_str(),
+		contest_call.c_str(),
+		progdefaults.contestSoapbox.c_str() );
+	}
 
-	qsodb.SortByDate(progdefaults.sort_date_time_off);
-    for (int i = 0; i < qsodb.nbrRecs(); i++) {
-        rec = qsodb.getRec(i);
-        if (rec->getField(EXPORT)[0] == 'E') {
-            cabrillo_append_qso(cabFile, rec);
-            rec->putField(EXPORT,"");
-            qsodb.qsoUpdRec(i, rec);
-        }
-    }
+#undef CONTEST_CATEGORY_VALUE
+
+	struct cabrillo_qso_item {
+		cQsoRec *rec;
+		int index;
+		std::string sort_key;
+
+		cabrillo_qso_item() : rec(0), index(0) {}
+	};
+	std::vector<cabrillo_qso_item> qso_items;
+
+	for (int i = 0; i < chkCabBrowser->FLTK_nitems() && i < qsodb.nbrRecs(); i++) {
+		if (!chkCabBrowser->checked(i + 1))
+			continue;
+
+		rec = qsodb.getRec(i);
+		cabrillo_qso_item item;
+		item.rec = rec;
+		item.index = i;
+		item.sort_key = cabrillo_qso_sort_key(rec);
+		qso_items.push_back(item);
+	}
+
+	if (contestnbr == DARC_HELL_SPRINT) {
+		std::stable_sort(qso_items.begin(), qso_items.end(),
+			[](const cabrillo_qso_item& a, const cabrillo_qso_item& b) {
+				if (a.sort_key == b.sort_key)
+					return a.index < b.index;
+				return a.sort_key < b.sort_key;
+			});
+	}
+
+	for (size_t i = 0; i < qso_items.size(); i++) {
+		rec = qso_items[i].rec;
+		std::string qso_date = rec->getField(progdefaults.sort_date_time_off ? QSO_DATE_OFF : QSO_DATE);
+		if (qso_date.empty())
+			qso_date = rec->getField(QSO_DATE);
+		if (!qso_date.empty()) {
+			if (first_qtc_date.empty() || qso_date < first_qtc_date)
+				first_qtc_date = qso_date;
+			if (last_qtc_date.empty() || qso_date > last_qtc_date)
+				last_qtc_date = qso_date;
+		}
+		cabrillo_append_qso(cabFile, rec);
+	}
+	cabrillo_append_qtc(cabFile, first_qtc_date, last_qtc_date);
     fprintf(cabFile, "END-OF-LOG:\n");
     fclose (cabFile);
     return;
@@ -2574,4 +2869,3 @@ void cb_btn_verify_eqsl(Fl_Button *, void *) {
 	Fl::awake(verify_eqsl);
 
 }
-

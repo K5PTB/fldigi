@@ -1189,8 +1189,12 @@ void * flrig_thread_loop(void *d)
 					if (!connected_to_flrig)
 						flrig_connection();
 					else {
-						if (progdefaults.flrig_keys_modem) flrig_get_ptt();
-						if (trx_state == STATE_RX) {
+//						if (progdefaults.flrig_keys_modem)
+							flrig_get_ptt();
+						if (trx_state != STATE_RX || ptt_state) {
+							flrig_get_pwrmeter();
+							flrig_get_wpm();
+						} else {
 							flrig_get_frequency();
 							flrig_get_smeter();
 							flrig_get_notch();
@@ -1205,10 +1209,6 @@ void * flrig_thread_loop(void *d)
 								flrig_get_bw();
 							else 
 								flrig_get_bws();
-						}
-						else {
-							flrig_get_pwrmeter();
-							flrig_get_wpm();
 						}
 					}
 				}

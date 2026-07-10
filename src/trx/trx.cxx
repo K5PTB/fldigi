@@ -650,29 +650,35 @@ void *trx_loop(void *args)
 			// fall through
 		case STATE_ENDED:
 			REQ(set_flrig_ptt, 0);
+			REQ(tci_set_ptt, 0);
 			stop_deadman();
 			return 0;
 		case STATE_RESTART:
 			REQ(set_flrig_ptt, 0);
+			REQ(tci_set_ptt, 0);
 			stop_deadman();
 			trx_reset_loop();
 			break;
 		case STATE_NEW_MODEM:
 			REQ(set_flrig_ptt, 0);
+			REQ(tci_set_ptt, 0);
 			trx_start_modem_loop();
 			break;
 		case STATE_TX:
 			REQ(set_flrig_ptt, 1);
+			REQ(tci_set_ptt, 1);
 			start_deadman();
 			trx_trx_transmit_loop();
 			break;
 		case STATE_TUNE:
 			REQ(set_flrig_ptt, 1);
+			REQ(tci_set_ptt, 1);
 			start_deadman();
 			trx_tune_loop();
 			break;
 		case STATE_RX:
 			REQ(set_flrig_ptt, 0);
+			REQ(tci_set_ptt, 0);
 			stop_deadman();
 			trx_trx_receive_loop();
 			break;

@@ -779,6 +779,7 @@ LOG_INFO("Closing rig interface threads");
 #endif
 	rigCAT_close();
 //		MilliSleep(100);
+	tci_cat_close();
 
 	RigCatCMDptt = btnRigCatCMDptt->value();
 	TTYptt = btnTTYptt->value();
@@ -795,6 +796,7 @@ LOG_INFO("Closing rig interface threads");
      HamlibCMDptt = btnHamlibCMDptt->value();
 #endif
 	chkUSERIGCATis = chkUSERIGCAT->value();
+	chkUSETCIis = chkUSETCI->value();
 
 #if USE_HAMLIB
 	if (*cboHamlibRig->value() == '\0') // no selection at start up
@@ -839,6 +841,18 @@ LOG_INFO("Closing rig interface threads");
 			wf->setQSY(0);
 		}
 #endif
+	} else if (chkUSETCIis) { // start the TCI thread
+		if (tci_init()) {
+			LOG_INFO("%s", "using TCI xcvr control");
+			wf->USB(true);
+			wf->setQSY(1);
+		} else {
+			LOG_INFO("%s", "defaulting to no xcvr control");
+			noCAT_init();
+			wf->USB(true);
+			wf->setQSY(0);
+			chkUSETCIis = false;
+		}
 	} else {
 		LOG_INFO("%s", "No xcvr control selected");
 		noCAT_init();

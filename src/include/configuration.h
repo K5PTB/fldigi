@@ -1455,6 +1455,9 @@
         ELEM_(int, chkUSEXMLRPCis, "CHKUSEXMLRPCIS",                                    \
               "Use XML-RPC rig control",                                                \
               0)                                                                        \
+        ELEM_(int, chkUSETCIis, "CHKUSETCIIS",                                         \
+              "Use TCI rig control",                                                    \
+              0)                                                                        \
         ELEM_(std::string, PTTdev, "PTTDEV",                                            \
               "PTT device",                                                             \
               DEFAULT_PTTDEV)                                                           \
@@ -2386,6 +2389,12 @@
         ELEM_(std::string, flrig_ip_port,    "FLRIG_IP_PORT",                           \
               "IP port number of flrig server",                                         \
               DEFAULT_FLRIG_IP_PORT)                                                    \
+        ELEM_(std::string, tci_ip_address, "TCI_IP_ADDRESS",                            \
+              "IP Address of TCI server",                                               \
+              DEFAULT_TCI_IP_ADDRESS)                                                   \
+        ELEM_(std::string, tci_ip_port,    "TCI_IP_PORT",                               \
+              "IP port number of TCI server",                                           \
+              DEFAULT_TCI_IP_PORT)                                                      \
         ELEM_(bool, show_all_codes, "SHOW_ALL_CODES",                                   \
               "Display all rx char's using ascii3 table",                               \
               false)                                                                    \

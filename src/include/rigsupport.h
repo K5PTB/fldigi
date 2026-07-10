@@ -31,6 +31,8 @@
 	#include "hamlib.h"
 #endif
 
+#include "tcicat.h"
+
 #include "xmlrpcpp/XmlRpc.h"
 #include "xmlrpcpp/XmlRpcValue.h"
 

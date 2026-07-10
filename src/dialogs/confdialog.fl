@@ -9151,8 +9151,10 @@ progdefaults.changed = true;}
 if (o->value()) {
   progdefaults.chkUSEHAMLIBis = false;
   progdefaults.chkUSERIGCATis = false;
+  progdefaults.chkUSETCIis = false;
   chkUSEHAMLIB->value(0);
   chkUSERIGCAT->value(0);
+  chkUSETCI->value(0);
 }
 progdefaults.changed=true;}
           tooltip {Disable if flrig not used.} xywh {234 81 70 15} down_box DOWN_BOX
@@ -9176,6 +9178,72 @@ progdefaults.changed=true;}
         }
       }
     }
+    Fl_Group grpRigTCI {
+      label {Rig Control/TCI}
+      xywh {200 0 600 350} box ENGRAVED_BOX align 21 hide
+      code0 {CONFIG_PAGE *p = new CONFIG_PAGE(o, _("Rig Control/TCI"));}
+      code1 {config_pages.push_back(p);}
+      code2 {tab_tree->add(_("Rig Control/TCI"));}
+    } {
+      Fl_Check_Button chkUSETCI {
+        label {Use TCI}
+        callback {if (o->value() == 1) {
+  chkUSEHAMLIB->value(0);
+  chkUSERIGCAT->value(0);
+  btn_fldigi_client_to_flrig->value(0);
+  progdefaults.chkUSEHAMLIBis = false;
+  progdefaults.chkUSERIGCATis = false;
+  progdefaults.fldigi_client_to_flrig = false;
+  progdefaults.chkUSETCIis = true;
+} else {
+  progdefaults.chkUSETCIis = false;
+  progdefaults.initInterface();
+}
+progdefaults.changed=true;}
+        tooltip {TCI used for rig control} xywh {434 32 110 20} down_box DOWN_BOX
+        code0 {o->value(progdefaults.chkUSETCIis);}
+      }
+      Fl_Group {} {
+        label {TCI server parameters
+a WebSocket-based rig control + audio protocol
+(SunSDR2/ExpertSDR3/AetherSDR)} open
+        xywh {209 148 580 81} box ENGRAVED_FRAME align 21
+      } {
+        Fl_Button btnDefault_tci_ip {
+          label Default
+          callback {set_ip_to_default(TCI_IO);
+progdefaults.changed = true;}
+          tooltip {Returns IP Address and port
+number to the default value.} xywh {613 194 73 24}
+        }
+        Fl_Input txt_tci_ip_address {
+          label Addr
+          callback {progdefaults.tci_ip_address = o->value();
+progdefaults.changed = true;}
+          tooltip {IP Address for TCI server
+IP Address format: nnn.nnn.nnn.nnn
+or name: i.e. localhost} xywh {244 194 230 24} align 8 when 1
+          code0 {o->labelsize(FL_NORMAL_SIZE);}
+          code1 {o->value(progdefaults.tci_ip_address.c_str());}
+          class Fl_Input2
+        }
+        Fl_Input txt_tci_ip_port {
+          label Port
+          callback {progdefaults.tci_ip_port = o->value();
+progdefaults.changed = true;}
+          tooltip {IP Address Port Number} xywh {518 194 55 24} align 8 when 1
+          code0 {o->labelsize(FL_NORMAL_SIZE);}
+          code1 {o->value(progdefaults.tci_ip_port.c_str());}
+          class Fl_Input2
+        }
+        Fl_Button btn_reconnect_tci_server {
+          label Reconnect
+          callback {progdefaults.initInterface();}
+          tooltip {Press only if you change the address/port} xywh {693 194 82 24}
+          code0 {\#include "rigsupport.h"}
+        }
+      }
+    }
     Fl_Group grpRigCat {
       label {Rig Control/CAT (rigcat)}
       xywh {200 0 600 350} box ENGRAVED_BOX align 21 hide
@@ -9188,8 +9256,10 @@ progdefaults.changed=true;}
         callback {if (o->value() == 1) {
   chkUSEHAMLIB->value(0);
   btn_fldigi_client_to_flrig->value(0);
+  chkUSETCI->value(0);
   progdefaults.chkUSERIGCATis = true;
   progdefaults.fldigi_client_to_flrig = false;
+  progdefaults.chkUSETCIis = false;
   btnInitRIGCAT->labelcolor(FL_RED);
   btnInitRIGCAT->redraw();
 } else {
@@ -9399,8 +9469,10 @@ btnInitRIGCAT->redraw_label();}
 if (o->value() == 1) {
   chkUSERIGCAT->value(0);
   btn_fldigi_client_to_flrig->value(0);
+  chkUSETCI->value(0);
   progdefaults.chkUSERIGCATis = false;
   progdefaults.fldigi_client_to_flrig = false;
+  progdefaults.chkUSETCIis = false;
   btnInitHAMLIB->labelcolor(FL_RED);
   btnInitHAMLIB->activate();
   btnInitHAMLIB->redraw();

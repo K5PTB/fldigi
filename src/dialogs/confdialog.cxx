@@ -7118,8 +7118,10 @@ static void cb_btn_fldigi_client_to_flrig(Fl_Check_Button* o, void*) {
   if (o->value()) {
     progdefaults.chkUSEHAMLIBis = false;
     progdefaults.chkUSERIGCATis = false;
+    progdefaults.chkUSETCIis = false;
     chkUSEHAMLIB->value(0);
     chkUSERIGCAT->value(0);
+    chkUSETCI->value(0);
   }
   progdefaults.changed=true;
 }
@@ -7137,6 +7139,53 @@ static void cb_val_flrig_poll(Fl_Counter2* o, void*) {
   progdefaults.flrig_poll = o->value();
 }
 
+Fl_Group *grpRigTCI=(Fl_Group *)0;
+
+Fl_Check_Button *chkUSETCI=(Fl_Check_Button *)0;
+
+static void cb_chkUSETCI(Fl_Check_Button* o, void*) {
+  if (o->value() == 1) {
+    chkUSEHAMLIB->value(0);
+    chkUSERIGCAT->value(0);
+    btn_fldigi_client_to_flrig->value(0);
+    progdefaults.chkUSEHAMLIBis = false;
+    progdefaults.chkUSERIGCATis = false;
+    progdefaults.fldigi_client_to_flrig = false;
+    progdefaults.chkUSETCIis = true;
+  } else {
+    progdefaults.chkUSETCIis = false;
+    progdefaults.initInterface();
+  }
+  progdefaults.changed=true;
+}
+
+Fl_Button *btnDefault_tci_ip=(Fl_Button *)0;
+
+static void cb_btnDefault_tci_ip(Fl_Button*, void*) {
+  set_ip_to_default(TCI_IO);
+  progdefaults.changed = true;
+}
+
+Fl_Input2 *txt_tci_ip_address=(Fl_Input2 *)0;
+
+static void cb_txt_tci_ip_address(Fl_Input2* o, void*) {
+  progdefaults.tci_ip_address = o->value();
+  progdefaults.changed = true;
+}
+
+Fl_Input2 *txt_tci_ip_port=(Fl_Input2 *)0;
+
+static void cb_txt_tci_ip_port(Fl_Input2* o, void*) {
+  progdefaults.tci_ip_port = o->value();
+  progdefaults.changed = true;
+}
+
+Fl_Button *btn_reconnect_tci_server=(Fl_Button *)0;
+
+static void cb_btn_reconnect_tci_server(Fl_Button*, void*) {
+  progdefaults.initInterface();
+}
+
 Fl_Group *grpRigCat=(Fl_Group *)0;
 
 Fl_Check_Button *chkUSERIGCAT=(Fl_Check_Button *)0;
@@ -7145,8 +7194,10 @@ static void cb_chkUSERIGCAT(Fl_Check_Button* o, void*) {
   if (o->value() == 1) {
     chkUSEHAMLIB->value(0);
     btn_fldigi_client_to_flrig->value(0);
+    chkUSETCI->value(0);
     progdefaults.chkUSERIGCATis = true;
     progdefaults.fldigi_client_to_flrig = false;
+    progdefaults.chkUSETCIis = false;
     btnInitRIGCAT->labelcolor(FL_RED);
     btnInitRIGCAT->redraw();
   } else {
@@ -7333,8 +7384,10 @@ static void cb_chkUSEHAMLIB(Fl_Check_Button* o, void*) {
   if (o->value() == 1) {
     chkUSERIGCAT->value(0);
     btn_fldigi_client_to_flrig->value(0);
+    chkUSETCI->value(0);
     progdefaults.chkUSERIGCATis = false;
     progdefaults.fldigi_client_to_flrig = false;
+    progdefaults.chkUSETCIis = false;
     btnInitHAMLIB->labelcolor(FL_RED);
     btnInitHAMLIB->activate();
     btnInitHAMLIB->redraw();
@@ -17398,6 +17451,65 @@ Fl_Double_Window* ConfigureDialog() {
       tab_tree->add(_("Rig Control/flrig"));
       grpRigFlrig->end();
     } // Fl_Group* grpRigFlrig
+    { Fl_Group* o = grpRigTCI = new Fl_Group(200, 0, 600, 350, gettext("Rig Control/TCI"));
+      grpRigTCI->box(FL_ENGRAVED_BOX);
+      grpRigTCI->align(Fl_Align(FL_ALIGN_TOP_LEFT|FL_ALIGN_INSIDE));
+      grpRigTCI->hide();
+      { Fl_Check_Button* o = chkUSETCI = new Fl_Check_Button(434, 32, 110, 20, gettext("Use TCI"));
+        chkUSETCI->tooltip(gettext("TCI used for rig control"));
+        chkUSETCI->down_box(FL_DOWN_BOX);
+        chkUSETCI->callback((Fl_Callback*)cb_chkUSETCI);
+        o->value(progdefaults.chkUSETCIis);
+      } // Fl_Check_Button* chkUSETCI
+      { Fl_Group* o = new Fl_Group(209, 148, 580, 81, gettext("TCI server parameters\na WebSocket-based rig control + audio protocol\n(SunSDR2/"
+"ExpertSDR3/AetherSDR)"));
+        o->box(FL_ENGRAVED_FRAME);
+        o->align(Fl_Align(FL_ALIGN_TOP_LEFT|FL_ALIGN_INSIDE));
+        { btnDefault_tci_ip = new Fl_Button(613, 194, 73, 24, gettext("Default"));
+          btnDefault_tci_ip->tooltip(gettext("Returns IP Address and port\nnumber to the default value."));
+          btnDefault_tci_ip->callback((Fl_Callback*)cb_btnDefault_tci_ip);
+        } // Fl_Button* btnDefault_tci_ip
+        { Fl_Input2* o = txt_tci_ip_address = new Fl_Input2(244, 194, 230, 24, gettext("Addr"));
+          txt_tci_ip_address->tooltip(gettext("IP Address for TCI server\nIP Address format: nnn.nnn.nnn.nnn\nor name: i.e. localhost"));
+          txt_tci_ip_address->box(FL_DOWN_BOX);
+          txt_tci_ip_address->color(FL_BACKGROUND2_COLOR);
+          txt_tci_ip_address->selection_color(FL_SELECTION_COLOR);
+          txt_tci_ip_address->labeltype(FL_NORMAL_LABEL);
+          txt_tci_ip_address->labelfont(0);
+          txt_tci_ip_address->labelsize(14);
+          txt_tci_ip_address->labelcolor(FL_FOREGROUND_COLOR);
+          txt_tci_ip_address->callback((Fl_Callback*)cb_txt_tci_ip_address);
+          txt_tci_ip_address->align(Fl_Align(FL_ALIGN_RIGHT));
+          txt_tci_ip_address->when(FL_WHEN_CHANGED);
+          o->labelsize(FL_NORMAL_SIZE);
+          o->value(progdefaults.tci_ip_address.c_str());
+        } // Fl_Input2* txt_tci_ip_address
+        { Fl_Input2* o = txt_tci_ip_port = new Fl_Input2(518, 194, 55, 24, gettext("Port"));
+          txt_tci_ip_port->tooltip(gettext("IP Address Port Number"));
+          txt_tci_ip_port->box(FL_DOWN_BOX);
+          txt_tci_ip_port->color(FL_BACKGROUND2_COLOR);
+          txt_tci_ip_port->selection_color(FL_SELECTION_COLOR);
+          txt_tci_ip_port->labeltype(FL_NORMAL_LABEL);
+          txt_tci_ip_port->labelfont(0);
+          txt_tci_ip_port->labelsize(14);
+          txt_tci_ip_port->labelcolor(FL_FOREGROUND_COLOR);
+          txt_tci_ip_port->callback((Fl_Callback*)cb_txt_tci_ip_port);
+          txt_tci_ip_port->align(Fl_Align(FL_ALIGN_RIGHT));
+          txt_tci_ip_port->when(FL_WHEN_CHANGED);
+          o->labelsize(FL_NORMAL_SIZE);
+          o->value(progdefaults.tci_ip_port.c_str());
+        } // Fl_Input2* txt_tci_ip_port
+        { btn_reconnect_tci_server = new Fl_Button(693, 194, 82, 24, gettext("Reconnect"));
+          btn_reconnect_tci_server->tooltip(gettext("Press only if you change the address/port"));
+          btn_reconnect_tci_server->callback((Fl_Callback*)cb_btn_reconnect_tci_server);
+        } // Fl_Button* btn_reconnect_tci_server
+        o->end();
+      } // Fl_Group* o
+      CONFIG_PAGE *p = new CONFIG_PAGE(o, _("Rig Control/TCI"));
+      config_pages.push_back(p);
+      tab_tree->add(_("Rig Control/TCI"));
+      grpRigTCI->end();
+    } // Fl_Group* grpRigTCI
     { Fl_Group* o = grpRigCat = new Fl_Group(200, 0, 600, 350, gettext("Rig Control/CAT (rigcat)"));
       grpRigCat->box(FL_ENGRAVED_BOX);
       grpRigCat->align(Fl_Align(FL_ALIGN_TOP_LEFT|FL_ALIGN_INSIDE));

@@ -90,9 +90,39 @@ class WebSocket {
         _dispatchBinary(callback);
     }
 
+    // dispatch()/dispatchBinary() each independently drain and consume every
+    // complete frame currently buffered, regardless of its actual opcode --
+    // dispatch() converts binary frames to (garbled) strings and hands them
+    // to the text callback, and by the time dispatchBinary() runs there's
+    // nothing left. That's harmless for a text-only caller (flrig's
+    // original usage), but breaks a connection carrying BOTH text and
+    // binary frames on one socket (TCI CAT + audio): calling both back to
+    // back silently drops every binary frame into the text callback.
+    // dispatchCombined() does a single pass and routes each frame to
+    // whichever callback matches its real opcode -- use this instead of
+    // calling dispatch()+dispatchBinary() together on the same connection.
+    template<class TextCallable, class BinCallable>
+    void dispatchCombined(TextCallable textCallable, BinCallable binCallable)
+    {
+        struct _TextCallback : public Callback_Imp {
+            TextCallable& callable;
+            _TextCallback(TextCallable& callable) : callable(callable) { }
+            void operator()(const std::string& message) { callable(message); }
+        };
+        struct _BinCallback : public BytesCallback_Imp {
+            BinCallable& callable;
+            _BinCallback(BinCallable& callable) : callable(callable) { }
+            void operator()(const std::vector<uint8_t>& message) { callable(message); }
+        };
+        _TextCallback textCb(textCallable);
+        _BinCallback binCb(binCallable);
+        _dispatchCombined(textCb, binCb);
+    }
+
   protected:
     virtual void _dispatch(Callback_Imp& callable) = 0;
     virtual void _dispatchBinary(BytesCallback_Imp& callable) = 0;
+    virtual void _dispatchCombined(Callback_Imp& textCallable, BytesCallback_Imp& binCallable) = 0;
 };
 
 } // namespace WSclient

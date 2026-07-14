@@ -144,6 +144,7 @@ class _DummyWebSocket : public WSclient::WebSocket
 	readyStateValues getReadyState() const { return CLOSED; }
 	void _dispatch(Callback_Imp & callable) { }
 	void _dispatchBinary(BytesCallback_Imp& callable) { }
+	void _dispatchCombined(Callback_Imp&, BytesCallback_Imp&) { }
 };
 
 
@@ -195,12 +196,25 @@ class _RealWebSocket : public WSclient::WebSocket
 	readyStateValues readyState;
 	bool useMask;
 	bool isRxBad;
+	int fragment_opcode; // opcode of the fragmented message _dispatchCombined() is currently reassembling
 
 	_RealWebSocket(socket_t sockfd, bool useMask)
 			: sockfd(sockfd)
 			, readyState(OPEN)
 			, useMask(useMask)
-			, isRxBad(false) {
+			, isRxBad(false)
+			, fragment_opcode(wsheader_type::TEXT_FRAME) {
+	}
+
+	// close()/poll() only queue a close frame and rely on a later poll() to
+	// actually call closesocket() once it's flushed -- if the owner deletes
+	// the object without that full round-trip (e.g. after joining the
+	// thread that would have driven poll()), the fd leaks and the peer
+	// still sees an ESTABLISHED connection indefinitely. Guarantee cleanup
+	// here regardless of how the object was torn down.
+	~_RealWebSocket() {
+		if (readyState != CLOSED)
+			closesocket(sockfd);
 	}
 
 	readyStateValues getReadyState() const {
@@ -371,6 +385,102 @@ class _RealWebSocket : public WSclient::WebSocket
 					callable((const std::vector<uint8_t>) receivedData);
 					receivedData.erase(receivedData.begin(), receivedData.end());
 					std::vector<uint8_t> ().swap(receivedData);// free memory
+				}
+			}
+			else if (ws.opcode == wsheader_type::PING) {
+				if (ws.mask) { for (size_t i = 0; i != ws.N; ++i) { rxbuf[i+ws.header_size] ^= ws.masking_key[i&0x3]; } }
+				std::string data(rxbuf.begin()+ws.header_size, rxbuf.begin()+ws.header_size+(size_t)ws.N);
+				sendData(wsheader_type::PONG, data.size(), data.begin(), data.end());
+			}
+			else if (ws.opcode == wsheader_type::PONG) { }
+			else if (ws.opcode == wsheader_type::CLOSE) { close(); }
+			else { fprintf(stderr, "ERROR: Got unexpected WebSocket message.\n"); close(); }
+
+			rxbuf.erase(rxbuf.begin(), rxbuf.begin() + ws.header_size+(size_t)ws.N);
+		}
+	}
+
+	// Single pass over rxbuf that routes each complete frame to the
+	// callback matching its real opcode, instead of _dispatch()/
+	// _dispatchBinary() each independently draining (and mis-typing) every
+	// frame regardless of opcode -- see the dispatchCombined() comment in
+	// WSclient.h for why that combination is unsafe on a connection
+	// carrying both text and binary frames.
+	virtual void _dispatchCombined(Callback_Imp& textCallable, BytesCallback_Imp& binCallable) {
+		if (isRxBad) {
+			return;
+		}
+		while (true) {
+			wsheader_type ws;
+			if (rxbuf.size() < 2) { return; }
+			const uint8_t * data = (uint8_t *) &rxbuf[0]; // peek, but don't consume
+			ws.fin = (data[0] & 0x80) == 0x80;
+			ws.opcode = (wsheader_type::opcode_type) (data[0] & 0x0f);
+			ws.mask = (data[1] & 0x80) == 0x80;
+			ws.N0 = (data[1] & 0x7f);
+			ws.header_size = 2 + (ws.N0 == 126? 2 : 0) + (ws.N0 == 127? 8 : 0) + (ws.mask? 4 : 0);
+			if (rxbuf.size() < ws.header_size) { return; }
+			int i = 0;
+			if (ws.N0 < 126) {
+				ws.N = ws.N0;
+				i = 2;
+			}
+			else if (ws.N0 == 126) {
+				ws.N = 0;
+				ws.N |= ((uint64_t) data[2]) << 8;
+				ws.N |= ((uint64_t) data[3]) << 0;
+				i = 4;
+			}
+			else if (ws.N0 == 127) {
+				ws.N = 0;
+				ws.N |= ((uint64_t) data[2]) << 56;
+				ws.N |= ((uint64_t) data[3]) << 48;
+				ws.N |= ((uint64_t) data[4]) << 40;
+				ws.N |= ((uint64_t) data[5]) << 32;
+				ws.N |= ((uint64_t) data[6]) << 24;
+				ws.N |= ((uint64_t) data[7]) << 16;
+				ws.N |= ((uint64_t) data[8]) << 8;
+				ws.N |= ((uint64_t) data[9]) << 0;
+				i = 10;
+				if (ws.N & 0x8000000000000000ull) {
+					isRxBad = true;
+					fprintf(stderr, "ERROR: Frame has invalid frame length. Closing.\n");
+					close();
+					return;
+				}
+			}
+			if (ws.mask) {
+				ws.masking_key[0] = ((uint8_t) data[i+0]) << 0;
+				ws.masking_key[1] = ((uint8_t) data[i+1]) << 0;
+				ws.masking_key[2] = ((uint8_t) data[i+2]) << 0;
+				ws.masking_key[3] = ((uint8_t) data[i+3]) << 0;
+			}
+			else {
+				ws.masking_key[0] = 0;
+				ws.masking_key[1] = 0;
+				ws.masking_key[2] = 0;
+				ws.masking_key[3] = 0;
+			}
+
+			if (rxbuf.size() < ws.header_size+ws.N) { return; }
+
+			if (false) { }
+			else if (
+				   ws.opcode == wsheader_type::TEXT_FRAME
+				|| ws.opcode == wsheader_type::BINARY_FRAME
+				|| ws.opcode == wsheader_type::CONTINUATION
+			) {
+				if (ws.mask) { for (size_t i = 0; i != ws.N; ++i) { rxbuf[i+ws.header_size] ^= ws.masking_key[i&0x3]; } }
+				if (ws.opcode != wsheader_type::CONTINUATION)
+					fragment_opcode = ws.opcode; // remember for the CONTINUATION frames that follow
+				receivedData.insert(receivedData.end(), rxbuf.begin()+ws.header_size, rxbuf.begin()+ws.header_size+(size_t)ws.N);
+				if (ws.fin) {
+					if (fragment_opcode == wsheader_type::BINARY_FRAME)
+						binCallable(receivedData);
+					else
+						textCallable(std::string(receivedData.begin(), receivedData.end()));
+					receivedData.erase(receivedData.begin(), receivedData.end());
+					std::vector<uint8_t> ().swap(receivedData);
 				}
 			}
 			else if (ws.opcode == wsheader_type::PING) {

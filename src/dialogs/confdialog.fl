@@ -10342,7 +10342,7 @@ http://www.pulseaudio.org/wiki/ServerStrings} xywh {512 156 225 24}
         }
       }
       Fl_Group AudioNull {open
-        xywh {255 190 135 45} box ENGRAVED_FRAME
+        xywh {255 190 230 45} box ENGRAVED_FRAME
       } {
         Fl_Round_Button {btnAudioIO[3]} {
           label {File I/O only}
@@ -10351,16 +10351,23 @@ progdefaults.changed = true;
 resetSoundCard();}
           tooltip {NO AUDIO DEVICE AVAILABLE (or testing)} xywh {268 200 100 25} down_box DOWN_BOX selection_color 1
         }
+        Fl_Round_Button {btnAudioIO[4]} {
+          label TCI
+          callback {sound_update(SND_IDX_TCI);
+progdefaults.changed = true;
+resetSoundCard();}
+          tooltip {Get RX/TX audio over the TCI connection (Rig Control/TCI tab) instead of a soundcard -- no driver needed} xywh {368 200 90 25} down_box DOWN_BOX selection_color 1
+        }
       }
       Fl_Group AudioDuplex {open
-        xywh {390 190 365 45} box ENGRAVED_FRAME
+        xywh {485 190 270 45} box ENGRAVED_FRAME
       } {
         Fl_Round_Button btn_is_full_duplex {
           label {Device supports full duplex}
           callback {progdefaults.is_full_duplex = o->value();
 progdefaults.changed = true;
 resetSoundCard();}
-          tooltip {Capture/Playback supports full duplex operation} xywh {433 200 225 25} down_box DOWN_BOX value 1 selection_color 1
+          tooltip {Capture/Playback supports full duplex operation} xywh {528 200 225 25} down_box DOWN_BOX value 1 selection_color 1
           code0 {o->value(progdefaults.is_full_duplex);}
         }
       }

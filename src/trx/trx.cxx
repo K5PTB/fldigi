@@ -881,6 +881,24 @@ void trx_reset_loop()
 		TXscard = new SoundNull;
 		current_RXsamplerate = current_TXsamplerate = 0;
 		break;
+	case SND_IDX_TCI:
+		try {
+			RXscard = new SoundTCI;
+			if (!RXscard) break;
+			RXscard->Open(O_RDONLY, current_RXsamplerate = 8000);
+			RXsc_is_open = true;
+
+			TXscard = new SoundTCI;
+			if (!TXscard) break;
+			TXscard->Open(O_WRONLY, current_TXsamplerate = 8000);
+			TXsc_is_open = true;
+		} catch (...) {
+			reset_loop_msg = "TCI audio open failure";
+			progdefaults.btnAudioIOis = SND_IDX_NULL;
+			sound_update(progdefaults.btnAudioIOis);
+			REQ(show_reset_loop_alert);
+		}
+		break;
 	default:
 		abort();
 	}
@@ -969,6 +987,10 @@ void trx_start(void)
 	case SND_IDX_NULL:
 		RXscard = new SoundNull;
 		TXscard = new SoundNull;
+		break;
+	case SND_IDX_TCI:
+		RXscard = new SoundTCI;
+		TXscard = new SoundTCI;
 		break;
 	default:
 		abort();

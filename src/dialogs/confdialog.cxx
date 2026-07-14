@@ -8140,10 +8140,16 @@ static void cb_inpPulseServer(Fl_Input2* o, void*) {
 
 Fl_Group *AudioNull=(Fl_Group *)0;
 
-Fl_Round_Button *btnAudioIO[4]={(Fl_Round_Button *)0};
+Fl_Round_Button *btnAudioIO[5]={(Fl_Round_Button *)0};
 
 static void cb_btnAudioIO3(Fl_Round_Button*, void*) {
   sound_update(SND_IDX_NULL);
+  progdefaults.changed = true;
+  resetSoundCard();
+}
+
+static void cb_btnAudioIO4(Fl_Round_Button*, void*) {
+  sound_update(SND_IDX_TCI);
   progdefaults.changed = true;
   resetSoundCard();
 }
@@ -18399,7 +18405,7 @@ Fl_Double_Window* ConfigureDialog() {
         } // Fl_Input2* inpPulseServer
         AudioPulse->end();
       } // Fl_Group* AudioPulse
-      { AudioNull = new Fl_Group(255, 190, 135, 45);
+      { AudioNull = new Fl_Group(255, 190, 230, 45);
         AudioNull->box(FL_ENGRAVED_FRAME);
         { btnAudioIO[3] = new Fl_Round_Button(268, 200, 100, 25, gettext("File I/O only"));
           btnAudioIO[3]->tooltip(gettext("NO AUDIO DEVICE AVAILABLE (or testing)"));
@@ -18407,11 +18413,17 @@ Fl_Double_Window* ConfigureDialog() {
           btnAudioIO[3]->selection_color((Fl_Color)1);
           btnAudioIO[3]->callback((Fl_Callback*)cb_btnAudioIO3);
         } // Fl_Round_Button* btnAudioIO[3]
+        { btnAudioIO[4] = new Fl_Round_Button(368, 200, 90, 25, gettext("TCI"));
+          btnAudioIO[4]->tooltip(gettext("Get RX/TX audio over the TCI connection (Rig Control/TCI tab) instead of a soundcard -- no driver needed"));
+          btnAudioIO[4]->down_box(FL_DOWN_BOX);
+          btnAudioIO[4]->selection_color((Fl_Color)1);
+          btnAudioIO[4]->callback((Fl_Callback*)cb_btnAudioIO4);
+        } // Fl_Round_Button* btnAudioIO[4]
         AudioNull->end();
       } // Fl_Group* AudioNull
-      { AudioDuplex = new Fl_Group(390, 190, 365, 45);
+      { AudioDuplex = new Fl_Group(485, 190, 270, 45);
         AudioDuplex->box(FL_ENGRAVED_FRAME);
-        { Fl_Round_Button* o = btn_is_full_duplex = new Fl_Round_Button(433, 200, 225, 25, gettext("Device supports full duplex"));
+        { Fl_Round_Button* o = btn_is_full_duplex = new Fl_Round_Button(528, 200, 225, 25, gettext("Device supports full duplex"));
           btn_is_full_duplex->tooltip(gettext("Capture/Playback supports full duplex operation"));
           btn_is_full_duplex->down_box(FL_DOWN_BOX);
           btn_is_full_duplex->value(1);

@@ -28,11 +28,14 @@
 
 #include <list>
 #include <string>
+#include <vector>
+#include <cstring>
 
 #include <assert.h>
 #include <stdio.h>
 #include <ctype.h>
 
+#include "ringbuffer.h"
 #include "threads.h"
 #include "misc.h"
 #include "debug.h"
@@ -43,6 +46,77 @@ TCI_VALS tci_vals;
 pthread_mutex_t tci_vals_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 using WSclient::WebSocket;
+
+// Single-writer (this file's receiver thread, via handle_binary()) /
+// single-reader (SoundTCI::Read(), called from trx_thread) ring buffer of
+// decoded mono float samples at TCI_AUDIO_SAMPLE_RATE. ~1.4s of audio at
+// 48kHz -- generous enough to absorb jitter between TCI's ~2048-sample
+// frame cadence and the modem's much smaller SCBLOCKSIZE reads.
+static ringbuffer<float> rx_audio_rb(65536);
+
+static_assert(sizeof(TciAudioHeader) == 64, "TCI audio header must be 64 bytes");
+
+static void handle_binary(const std::vector<uint8_t>& msg)
+{
+	static unsigned accepted = 0, rejected = 0;
+
+	if (msg.size() < sizeof(TciAudioHeader)) {
+		if (++rejected <= 5 || rejected % 200 == 0)
+			LOG_ERROR("binary msg too small: %zu bytes (need %zu)", msg.size(), sizeof(TciAudioHeader));
+		return;
+	}
+
+	TciAudioHeader hdr;
+	memcpy(&hdr, msg.data(), sizeof(hdr));
+
+	if (hdr.type != 1) { // only RX_AUDIO; ignore IQ/TX_AUDIO/TX_CHRONO
+		if (++rejected <= 5 || rejected % 200 == 0)
+			LOG_DEBUG("binary frame type=%u ignored (not RX_AUDIO)", hdr.type);
+		return;
+	}
+
+	size_t bytes_per_sample;
+	if (hdr.format == 3)      bytes_per_sample = sizeof(float);
+	else if (hdr.format == 0) bytes_per_sample = sizeof(int16_t);
+	else return; // int24/int32 not sent for RX_AUDIO by any known TCI peer
+
+	size_t channels = hdr.channels ? hdr.channels : 1;
+	const uint8_t *payload = msg.data() + sizeof(hdr);
+	size_t payload_bytes = msg.size() - sizeof(hdr);
+
+	// hdr.length is trusted per spec, but clamp to what actually arrived
+	// rather than read past the buffer if a peer under-sends.
+	size_t nsamples = hdr.length;
+	if (nsamples * bytes_per_sample > payload_bytes)
+		nsamples = payload_bytes / bytes_per_sample;
+	size_t frames = nsamples / channels;
+	if (frames == 0)
+		return;
+
+	static std::vector<float> mono;
+	mono.resize(frames);
+
+	if (hdr.format == 3) {
+		const float *f = reinterpret_cast<const float*>(payload);
+		if (channels == 2)
+			for (size_t i = 0; i < frames; i++) mono[i] = 0.5f * (f[2*i] + f[2*i+1]);
+		else
+			for (size_t i = 0; i < frames; i++) mono[i] = f[i];
+	} else {
+		const int16_t *s = reinterpret_cast<const int16_t*>(payload);
+		const float scale = 1.0f / 32768.0f;
+		if (channels == 2)
+			for (size_t i = 0; i < frames; i++) mono[i] = 0.5f * (s[2*i] + s[2*i+1]) * scale;
+		else
+			for (size_t i = 0; i < frames; i++) mono[i] = s[i] * scale;
+	}
+
+	if (++accepted <= 5 || accepted % 200 == 0)
+		LOG_INFO("RX_AUDIO frame #%u: format=%u channels=%zu frames=%zu rb_write_space=%zu",
+			accepted, hdr.format, channels, frames, rx_audio_rb.write_space());
+
+	rx_audio_rb.write(mono.data(), frames); // drops overflow if consumer is slow/absent
+}
 
 // fldigi tracks a single TRX/receiver (RX0) via TCI; the rxnbr/slice index
 // carried by the protocol is parsed but ignored (accept updates regardless
@@ -190,11 +264,17 @@ void *tci_loop(void *)
 			}
 		}
 		ws->poll();
-		ws->dispatch(handle_message);
-		// TODO Stage 2: also drive ws->dispatchBinary() here for audio
+		ws->dispatchCombined(handle_message, handle_binary);
 		MilliSleep(5);
 	}
 	return NULL;
+}
+
+static unsigned connection_generation = 0;
+
+unsigned tci_connection_generation(void)
+{
+	return connection_generation;
 }
 
 void tci_open(std::string address, std::string port)
@@ -213,6 +293,7 @@ void tci_open(std::string address, std::string port)
 		send_list->clear();
 
 		tci_run = true;
+		++connection_generation;
 
 		receiver = new pthread_t;
 		if (pthread_create(receiver, NULL, tci_loop, NULL) < 0) {
@@ -261,4 +342,31 @@ bool tci_running()
 {
 	if (!ws) return false;
 	return (ws->getReadyState() != WebSocket::CLOSED);
+}
+
+void tci_audio_start(int trx)
+{
+	char cmd[64];
+	tci_send("audio_samplerate:48000;");
+	tci_send("audio_stream_channels:1;");
+	tci_send("audio_stream_sample_type:float32;");
+	snprintf(cmd, sizeof(cmd), "audio_start:%d;", trx);
+	tci_send(cmd);
+}
+
+void tci_audio_stop(int trx)
+{
+	char cmd[64];
+	snprintf(cmd, sizeof(cmd), "audio_stop:%d;", trx);
+	tci_send(cmd);
+}
+
+size_t tci_rx_audio_read(float *buf, size_t count)
+{
+	return rx_audio_rb.read(buf, count);
+}
+
+size_t tci_rx_audio_available(void)
+{
+	return rx_audio_rb.read_space();
 }

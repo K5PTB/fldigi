@@ -563,6 +563,10 @@ void sound_update(unsigned idx)
 		case SND_IDX_NULL:
 			scDevice[0] = scDevice[1] = "";
 			break;
+
+		case SND_IDX_TCI:
+			scDevice[0] = scDevice[1] = "";
+			break;
 	};
 }
 

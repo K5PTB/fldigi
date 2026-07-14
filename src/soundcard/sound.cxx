@@ -68,6 +68,7 @@
 #include "threads.h"
 #include "timeops.h"
 #include "ringbuffer.h"
+#include "tci_io.h"
 #include "debug.h"
 #include "qrunner.h"
 #include "icons.h"
@@ -2480,6 +2481,133 @@ void SoundPulse::src_data_reset(int mode)
 }
 
 #endif // USE_PULSEAUDIO
+
+
+// ----------------------------------------------------------------------------
+// SoundTCI -- RX audio pulled from tci_io.cxx's ring buffer; TX is a Stage 3
+// TODO (see sound.h for the full design note).
+// ----------------------------------------------------------------------------
+
+SoundTCI::SoundTCI()
+{
+	rx_open = false;
+	rx_conn_gen = 0;
+	rx_blocksize = 1024;
+	rx_snd_buffer = new float[rx_blocksize];
+
+	int err;
+	rx_src_state = src_callback_new(src_read_cb, progdefaults.sample_converter, 1, &err, this);
+	if (!rx_src_state)
+		throw SndException(src_strerror(err));
+
+	LOG(debug::INFO_LEVEL, debug::LOG_RIGCONTROL, "SoundTCI constructed");
+}
+
+SoundTCI::~SoundTCI()
+{
+	Close();
+	if (rx_src_state) {
+		src_delete(rx_src_state);
+		rx_src_state = 0;
+	}
+	delete [] rx_snd_buffer;
+}
+
+int SoundTCI::Open(int mode, int freq)
+{
+	req_sample_rate = freq;
+	sample_frequency = TCI_AUDIO_SAMPLE_RATE;
+
+	LOG(debug::INFO_LEVEL, debug::LOG_RIGCONTROL, "SoundTCI::Open mode=%d freq=%d", mode, freq);
+
+	if (mode == O_RDONLY || mode == O_RDWR) {
+		tci_audio_start(0);
+		rx_conn_gen = tci_connection_generation();
+		rx_open = true;
+	}
+	return 0;
+}
+
+void SoundTCI::Close(unsigned dir)
+{
+	if ((dir == (unsigned)O_RDONLY || dir == UINT_MAX) && rx_open) {
+		tci_audio_stop(0);
+		rx_open = false;
+	}
+}
+
+// Pull-style callback for libsamplerate's src_callback_read(): fetch up to
+// rx_blocksize samples from tci_io.cxx's ring buffer, blocking briefly
+// (bounded) if it's momentarily empty so the caller doesn't busy-spin --
+// mirrors SoundPulse::src_read_cb's role, but pulling from a ring buffer
+// fed by the TCI receiver thread instead of a blocking pa_simple_read().
+long SoundTCI::src_read_cb(void* arg, float** data)
+{
+	SoundTCI *p = reinterpret_cast<SoundTCI*>(arg);
+	size_t n = 0;
+	for (int tries = 0; tries < 20 && n == 0; tries++) {
+		n = tci_rx_audio_read(p->rx_snd_buffer, p->rx_blocksize);
+		if (n == 0) MilliSleep(5);
+	}
+	static unsigned starved = 0, fed = 0;
+	if (n == 0) {
+		if (++starved <= 5 || starved % 200 == 0)
+			LOG(debug::INFO_LEVEL, debug::LOG_RIGCONTROL, "SoundTCI::src_read_cb starved (#%u, gave up after 20 tries)", starved);
+	} else {
+		if (++fed <= 5 || fed % 200 == 0)
+			LOG(debug::INFO_LEVEL, debug::LOG_RIGCONTROL, "SoundTCI::src_read_cb fed %zu samples (#%u)", n, fed);
+	}
+	*data = p->rx_snd_buffer;
+	return (long)n;
+}
+
+size_t SoundTCI::Read(float *buf, size_t count)
+{
+	if (!rx_open) {
+		MilliSleep(5);
+		return 0;
+	}
+
+	// The TCI CAT connection (Rig Control/TCI tab) can reconnect
+	// independently of this audio device ever being closed/reopened,
+	// which would otherwise leave a stale audio_start subscription on a
+	// socket nobody uses anymore. Cheap check, self-heals transparently.
+	unsigned gen = tci_connection_generation();
+	if (gen != rx_conn_gen) {
+		tci_audio_start(0);
+		rx_conn_gen = gen;
+	}
+
+	double ratio = req_sample_rate / (double)sample_frequency;
+	size_t n = 0;
+	long r;
+	while (n < count) {
+		r = src_callback_read(rx_src_state, ratio, count - n, buf + n);
+		if (r <= 0) break;
+		n += (size_t)r;
+	}
+	return n;
+}
+
+size_t SoundTCI::Write(double* buf, size_t count)
+{
+	// Stage 3 TODO: send as TX_AUDIO frames paced by TX_CHRONO. For now,
+	// accept and discard so PTT/TX still exercise the rest of the chain
+	// (matches SoundNull's pacing so trx_thread doesn't spin).
+	MilliSleep((long)ceil((1e3 * count) / sample_frequency));
+	return count;
+}
+
+size_t SoundTCI::Write_stereo(double* bufleft, double* bufright, size_t count)
+{
+	MilliSleep((long)ceil((1e3 * count) / sample_frequency));
+	return count ? count : 1;
+}
+
+size_t SoundTCI::resample_write(float* buf, size_t count)
+{
+	return count;
+}
 
 
 size_t SoundNull::Write(double* buf, size_t count)

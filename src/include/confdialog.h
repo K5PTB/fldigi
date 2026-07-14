@@ -959,7 +959,7 @@ extern Fl_Choice *menuPortOutDev;
 extern Fl_Group *AudioPulse;
 extern Fl_Input2 *inpPulseServer;
 extern Fl_Group *AudioNull;
-extern Fl_Round_Button *btnAudioIO[4];
+extern Fl_Round_Button *btnAudioIO[5];
 extern Fl_Group *AudioDuplex;
 extern Fl_Round_Button *btn_is_full_duplex;
 extern Fl_Group *AudioAlerts;

@@ -39,6 +39,7 @@
 #include "misc.h"
 #include "debug.h"
 #include "status.h"
+#include "soundconf.h"
 
 LOG_FILE_SOURCE(debug::LOG_RIGCONTROL);
 
@@ -119,7 +120,18 @@ void tci_set_ptt(int on)
 {
 	if (!progdefaults.chkUSETCIis) return;
 	if (!tci_running()) return;
-	tci_send(on ? "TRX:0,true;" : "TRX:0,false;");
+
+	// Explicit ",tci" on key-up requests TCI-audio TX routing regardless of
+	// the slice's current mode -- AetherSDR only auto-selects that route
+	// for a handful of mode names (DIGU/DIGL/RTTY/FDV*) when no 3rd arg is
+	// given, and fldigi users commonly run digital modes with the rig set
+	// to USB/LSB rather than those literal names. Only requested when TCI
+	// is actually the active TX audio backend; CAT-only PTT (soundcard/DAX
+	// still carrying the audio) must not force the server onto TX_CHRONO.
+	if (on && progdefaults.btnAudioIOis == SND_IDX_TCI)
+		tci_send("TRX:0,true,tci;");
+	else
+		tci_send(on ? "TRX:0,true;" : "TRX:0,false;");
 }
 
 bool init_Tci_RigDialog()

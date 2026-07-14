@@ -47,6 +47,8 @@ pthread_mutex_t tci_vals_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 using WSclient::WebSocket;
 
+static WebSocket::pointer ws = (WebSocket::pointer)0;
+
 // Single-writer (this file's receiver thread, via handle_binary()) /
 // single-reader (SoundTCI::Read(), called from trx_thread) ring buffer of
 // decoded mono float samples at TCI_AUDIO_SAMPLE_RATE. ~1.4s of audio at
@@ -54,7 +56,71 @@ using WSclient::WebSocket;
 // frame cadence and the modem's much smaller SCBLOCKSIZE reads.
 static ringbuffer<float> rx_audio_rb(65536);
 
+// Opposite direction/roles from rx_audio_rb: written by SoundTCI::Write()
+// (trx_thread, mono float already resampled to TCI_AUDIO_SAMPLE_RATE),
+// read by handle_binary() (this file's receiver thread) when a TX_CHRONO
+// frame arrives and a TX_AUDIO reply is due. Still single-writer/
+// single-reader, just with the writer/reader roles swapped vs RX.
+static ringbuffer<float> tx_audio_rb(65536);
+
 static_assert(sizeof(TciAudioHeader) == 64, "TCI audio header must be 64 bytes");
+
+size_t tci_tx_audio_write(const float *buf, size_t count)
+{
+	return tx_audio_rb.write(buf, count);
+}
+
+// AetherSDR's TX_CHRONO advertises hdr.channels=2, hdr.length=2048 (i.e.
+// 1024 stereo frames) and expects a matching TX_AUDIO reply. WSJT-X's own
+// TCI modulator writes duplicated L=R stereo pairs (a well-known quirk the
+// server explicitly detects and handles), so mono content is sent the same
+// way here rather than as true mono -- true mono risks a false-positive
+// match against the server's *other* heuristic (treating near-identical
+// adjacent samples as accidental stereo pairs), which narrowband digital-
+// mode audio can easily trigger. Sending genuine duplicated pairs sidesteps
+// that ambiguity entirely by matching the one path known to work.
+static void handle_tx_chrono(const TciAudioHeader& chrono)
+{
+	static unsigned sent = 0, underruns = 0;
+
+	if (!ws) return;
+
+	size_t channels_req = chrono.channels ? chrono.channels : 2;
+	size_t total_req = chrono.length ? chrono.length : 2048;
+	size_t frames = total_req / channels_req;
+	if (frames == 0) frames = 1024;
+
+	static std::vector<float> mono;
+	mono.resize(frames);
+	size_t got = tx_audio_rb.read(mono.data(), frames);
+	if (got < frames) {
+		std::fill(mono.begin() + got, mono.end(), 0.0f); // underrun -> pad silence
+		if (++underruns <= 5 || underruns % 200 == 0)
+			LOG_DEBUG("TX_CHRONO underrun #%u: wanted %zu frames, had %zu", underruns, frames, got);
+	}
+
+	TciAudioHeader out;
+	memset(&out, 0, sizeof(out));
+	out.receiver = chrono.receiver;
+	out.sampleRate = TCI_AUDIO_SAMPLE_RATE;
+	out.format = 3; // float32
+	out.length = (uint32_t)(frames * 2); // total interleaved stereo samples
+	out.type = 2; // TX_AUDIO
+	out.channels = 2;
+
+	std::vector<uint8_t> frame(sizeof(out) + frames * 2 * sizeof(float));
+	memcpy(frame.data(), &out, sizeof(out));
+	float *dst = reinterpret_cast<float*>(frame.data() + sizeof(out));
+	for (size_t i = 0; i < frames; i++) {
+		dst[2*i]   = mono[i];
+		dst[2*i+1] = mono[i];
+	}
+
+	ws->sendBinary(frame);
+
+	if (++sent <= 5 || sent % 200 == 0)
+		LOG_INFO("TX_AUDIO frame #%u: frames=%zu rb_read_space_left=%zu", sent, frames, tx_audio_rb.read_space());
+}
 
 static void handle_binary(const std::vector<uint8_t>& msg)
 {
@@ -69,7 +135,12 @@ static void handle_binary(const std::vector<uint8_t>& msg)
 	TciAudioHeader hdr;
 	memcpy(&hdr, msg.data(), sizeof(hdr));
 
-	if (hdr.type != 1) { // only RX_AUDIO; ignore IQ/TX_AUDIO/TX_CHRONO
+	if (hdr.type == 3) { // TX_CHRONO: server wants a TX_AUDIO reply now
+		handle_tx_chrono(hdr);
+		return;
+	}
+
+	if (hdr.type != 1) { // only RX_AUDIO handled below; ignore IQ/TX_AUDIO
 		if (++rejected <= 5 || rejected % 200 == 0)
 			LOG_DEBUG("binary frame type=%u ignored (not RX_AUDIO)", hdr.type);
 		return;
@@ -227,8 +298,6 @@ void handle_message(const std::string & message)
 		tci_vals.tx_swr = fval;
 	}
 }
-
-static WebSocket::pointer ws = (WebSocket::pointer)0;
 
 static bool tci_run = true;
 static std::string  send_txt = "";

@@ -91,6 +91,14 @@ extern void tci_audio_stop(int trx);
 extern size_t tci_rx_audio_read(float *buf, size_t count);
 extern size_t tci_rx_audio_available(void);
 
+// TX audio (Stage 3): SoundTCI::Write()/Write_stereo() push modem TX audio,
+// already resampled to 48000 Hz mono, here. tci_io.cxx's receiver thread
+// drains this ring buffer each time a type=3 TX_CHRONO frame arrives from
+// the server and answers with a type=2 TX_AUDIO frame -- pacing is driven
+// entirely by TX_CHRONO arrival, not a local timer, matching AetherSDR's
+// ~1024-frame/~21ms cadence.
+extern size_t tci_tx_audio_write(const float *buf, size_t count);
+
 // Bumped by tci_io.cxx every time tci_open() establishes a new underlying
 // connection. The TCI CAT connection (Rig Control/TCI tab) and the TCI
 // audio device (Soundcard/Devices tab) are independent subsystems -- a CAT

@@ -32,6 +32,7 @@
 #include <string>
 #include <cstring>
 #include <climits>
+#include <vector>
 
 #  include <sndfile.h>
 
@@ -359,10 +360,10 @@ protected:
 // API (rx_src_state), matching SoundPulse's ppm-correction pattern but
 // used here for the primary rate conversion, since the TCI stream's rate
 // (TCI_AUDIO_SAMPLE_RATE) generally does not match the modem's requested
-// rate. TX (Write/Write_stereo) is a Stage 3 TODO: for now it behaves
-// like SoundNull -- audio is accepted and discarded, so PTT/TX still
-// exercise the rest of the chain without a hard dependency on TX_CHRONO
-// pacing that hasn't been implemented yet.
+// rate. TX (Write/Write_stereo) resamples modem audio up to
+// TCI_AUDIO_SAMPLE_RATE (tx_src_state, block-based src_process) and pushes
+// it into tci_io.cxx's TX ring buffer; actual sending is paced entirely by
+// the server's TX_CHRONO frames, not by this class.
 class SoundTCI : public SoundBase
 {
 public:
@@ -382,6 +383,8 @@ private:
 	static long	src_read_cb(void* arg, float** data);
 	float	*rx_snd_buffer;
 	size_t	rx_blocksize;
+	std::vector<float> tx_fbuf;
+	std::vector<float> tx_outbuf;
 	bool	rx_open;
 	unsigned rx_conn_gen;
 };

@@ -2500,6 +2500,10 @@ SoundTCI::SoundTCI()
 	if (!rx_src_state)
 		throw SndException(src_strerror(err));
 
+	tx_src_state = src_new(progdefaults.sample_converter, 1, &err);
+	if (!tx_src_state)
+		throw SndException(src_strerror(err));
+
 	LOG(debug::INFO_LEVEL, debug::LOG_RIGCONTROL, "SoundTCI constructed");
 }
 
@@ -2509,6 +2513,10 @@ SoundTCI::~SoundTCI()
 	if (rx_src_state) {
 		src_delete(rx_src_state);
 		rx_src_state = 0;
+	}
+	if (tx_src_state) {
+		src_delete(tx_src_state);
+		tx_src_state = 0;
 	}
 	delete [] rx_snd_buffer;
 }
@@ -2591,21 +2599,53 @@ size_t SoundTCI::Read(float *buf, size_t count)
 
 size_t SoundTCI::Write(double* buf, size_t count)
 {
-	// Stage 3 TODO: send as TX_AUDIO frames paced by TX_CHRONO. For now,
-	// accept and discard so PTT/TX still exercise the rest of the chain
-	// (matches SoundNull's pacing so trx_thread doesn't spin).
-	MilliSleep((long)ceil((1e3 * count) / sample_frequency));
-	return count;
+	if (!active_modem) return count;
+
+	tx_fbuf.resize(count);
+	for (size_t i = 0; i < count; i++)
+		tx_fbuf[i] = (float)buf[i];
+
+	return resample_write(tx_fbuf.data(), count);
 }
 
 size_t SoundTCI::Write_stereo(double* bufleft, double* bufright, size_t count)
 {
-	MilliSleep((long)ceil((1e3 * count) / sample_frequency));
-	return count ? count : 1;
+	if (!active_modem) return count ? count : 1;
+
+	tx_fbuf.resize(count);
+	for (size_t i = 0; i < count; i++)
+		tx_fbuf[i] = (float)(0.5 * (bufleft[i] + bufright[i]));
+
+	return resample_write(tx_fbuf.data(), count);
 }
 
+// Resamples modem-rate mono audio up to TCI_AUDIO_SAMPLE_RATE and pushes it
+// into tci_io.cxx's TX ring buffer, from which handle_tx_chrono() pulls a
+// block every time the server's TX_CHRONO frame arrives. Block-based
+// (src_process, not the pull-style callback RX uses) since the full input
+// is already in hand here -- no need to poll for it like Read() does.
 size_t SoundTCI::resample_write(float* buf, size_t count)
 {
+	double ratio = (double)TCI_AUDIO_SAMPLE_RATE / req_sample_rate;
+
+	size_t max_out = (size_t)(count * ratio) + 256;
+	tx_outbuf.resize(max_out);
+
+	SRC_DATA sd;
+	sd.data_in = buf;
+	sd.input_frames = count;
+	sd.data_out = tx_outbuf.data();
+	sd.output_frames = max_out;
+	sd.src_ratio = ratio;
+	sd.end_of_input = 0;
+
+	int err = src_process(tx_src_state, &sd);
+	if (err)
+		throw SndException(src_strerror(err));
+
+	if (sd.output_frames_gen > 0)
+		tci_tx_audio_write(tx_outbuf.data(), (size_t)sd.output_frames_gen);
+
 	return count;
 }
 

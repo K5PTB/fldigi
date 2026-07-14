@@ -7111,6 +7111,28 @@ static void cb_btn_reconnect_flrig_server_mirror(Fl_Button*, void*) {
   reconnect_to_flrig();
 }
 
+// Soundcard/Devices' TCI radio button only makes sense with TCI CAT (Rig
+// Control/TCI tab) actually enabled -- that connection is what the audio
+// subscribe rides on. The four checkboxes below are mutually exclusive CAT
+// mechanisms; each can turn TCI CAT off programmatically (chkUSETCI->value(0))
+// without triggering chkUSETCI's own callback, so each calls this directly
+// to keep the audio-device button in sync. Falls back to File I/O if TCI
+// audio was the active backend when CAT gets disabled out from under it.
+static void tci_audio_ui_enable(bool on) {
+  if (!btnAudioIO[4]) return; // not constructed yet
+  if (on) {
+    btnAudioIO[4]->activate();
+  } else {
+    if (progdefaults.btnAudioIOis == SND_IDX_TCI) {
+      sound_update(SND_IDX_NULL);
+      progdefaults.changed = true;
+      resetSoundCard();
+    }
+    btnAudioIO[4]->deactivate();
+  }
+  btnAudioIO[4]->redraw();
+}
+
 Fl_Check_Button *btn_fldigi_client_to_flrig=(Fl_Check_Button *)0;
 
 static void cb_btn_fldigi_client_to_flrig(Fl_Check_Button* o, void*) {
@@ -7122,6 +7144,7 @@ static void cb_btn_fldigi_client_to_flrig(Fl_Check_Button* o, void*) {
     chkUSEHAMLIB->value(0);
     chkUSERIGCAT->value(0);
     chkUSETCI->value(0);
+    tci_audio_ui_enable(false);
   }
   progdefaults.changed=true;
 }
@@ -7152,8 +7175,10 @@ static void cb_chkUSETCI(Fl_Check_Button* o, void*) {
     progdefaults.chkUSERIGCATis = false;
     progdefaults.fldigi_client_to_flrig = false;
     progdefaults.chkUSETCIis = true;
+    tci_audio_ui_enable(true);
   } else {
     progdefaults.chkUSETCIis = false;
+    tci_audio_ui_enable(false);
     progdefaults.initInterface();
   }
   progdefaults.changed=true;
@@ -7198,6 +7223,7 @@ static void cb_chkUSERIGCAT(Fl_Check_Button* o, void*) {
     progdefaults.chkUSERIGCATis = true;
     progdefaults.fldigi_client_to_flrig = false;
     progdefaults.chkUSETCIis = false;
+    tci_audio_ui_enable(false);
     btnInitRIGCAT->labelcolor(FL_RED);
     btnInitRIGCAT->redraw();
   } else {
@@ -7388,6 +7414,7 @@ static void cb_chkUSEHAMLIB(Fl_Check_Button* o, void*) {
     progdefaults.chkUSERIGCATis = false;
     progdefaults.fldigi_client_to_flrig = false;
     progdefaults.chkUSETCIis = false;
+    tci_audio_ui_enable(false);
     btnInitHAMLIB->labelcolor(FL_RED);
     btnInitHAMLIB->activate();
     btnInitHAMLIB->redraw();
@@ -18345,50 +18372,50 @@ Fl_Double_Window* ConfigureDialog() {
       grpSoundDevices->box(FL_ENGRAVED_BOX);
       grpSoundDevices->align(Fl_Align(FL_ALIGN_TOP_LEFT|FL_ALIGN_INSIDE));
       grpSoundDevices->hide();
-      { AudioOSS = new Fl_Group(255, 20, 500, 45);
+      { AudioOSS = new Fl_Group(255, 20, 530, 32);
         AudioOSS->box(FL_ENGRAVED_FRAME);
-        { btnAudioIO[0] = new Fl_Round_Button(267, 30, 53, 25, gettext("OSS"));
+        { btnAudioIO[0] = new Fl_Round_Button(267, 24, 53, 25, gettext("OSS"));
           btnAudioIO[0]->tooltip(gettext("Use OSS audio server"));
           btnAudioIO[0]->down_box(FL_DOWN_BOX);
           btnAudioIO[0]->selection_color((Fl_Color)1);
           btnAudioIO[0]->callback((Fl_Callback*)cb_btnAudioIO);
         } // Fl_Round_Button* btnAudioIO[0]
-        { Fl_Input_Choice* o = menuOSSDev = new Fl_Input_Choice(572, 30, 165, 25, gettext("Device:"));
+        { Fl_Input_Choice* o = menuOSSDev = new Fl_Input_Choice(572, 24, 165, 25, gettext("Device:"));
           menuOSSDev->tooltip(gettext("Select device"));
           menuOSSDev->callback((Fl_Callback*)cb_menuOSSDev);
           o->value(progdefaults.OSSdevice.c_str());
         } // Fl_Input_Choice* menuOSSDev
         AudioOSS->end();
       } // Fl_Group* AudioOSS
-      { AudioPort = new Fl_Group(255, 65, 500, 79);
+      { AudioPort = new Fl_Group(255, 52, 530, 32);
         AudioPort->box(FL_ENGRAVED_FRAME);
-        { btnAudioIO[1] = new Fl_Round_Button(267, 93, 95, 25, gettext("PortAudio"));
+        { btnAudioIO[1] = new Fl_Round_Button(267, 56, 95, 25, gettext("PortAudio"));
           btnAudioIO[1]->tooltip(gettext("Use Port Audio server"));
           btnAudioIO[1]->down_box(FL_DOWN_BOX);
           btnAudioIO[1]->selection_color((Fl_Color)1);
           btnAudioIO[1]->callback((Fl_Callback*)cb_btnAudioIO1);
         } // Fl_Round_Button* btnAudioIO[1]
-        { menuPortInDev = new Fl_Choice(427, 76, 310, 25, gettext("Capture:"));
+        { menuPortInDev = new Fl_Choice(432, 56, 140, 25, gettext("Capture:"));
           menuPortInDev->tooltip(gettext("Audio input device"));
           menuPortInDev->down_box(FL_BORDER_BOX);
           menuPortInDev->callback((Fl_Callback*)cb_menuPortInDev);
         } // Fl_Choice* menuPortInDev
-        { menuPortOutDev = new Fl_Choice(427, 111, 310, 25, gettext("Playback:"));
+        { menuPortOutDev = new Fl_Choice(650, 56, 130, 25, gettext("Playback:"));
           menuPortOutDev->tooltip(gettext("Audio output device"));
           menuPortOutDev->down_box(FL_BORDER_BOX);
           menuPortOutDev->callback((Fl_Callback*)cb_menuPortOutDev);
         } // Fl_Choice* menuPortOutDev
         AudioPort->end();
       } // Fl_Group* AudioPort
-      { AudioPulse = new Fl_Group(255, 145, 500, 45);
+      { AudioPulse = new Fl_Group(255, 84, 530, 32);
         AudioPulse->box(FL_ENGRAVED_FRAME);
-        { btnAudioIO[2] = new Fl_Round_Button(267, 156, 100, 25, gettext("PulseAudio"));
+        { btnAudioIO[2] = new Fl_Round_Button(267, 88, 100, 25, gettext("PulseAudio"));
           btnAudioIO[2]->tooltip(gettext("Use Pulse Audio server"));
           btnAudioIO[2]->down_box(FL_DOWN_BOX);
           btnAudioIO[2]->selection_color((Fl_Color)1);
           btnAudioIO[2]->callback((Fl_Callback*)cb_btnAudioIO2);
         } // Fl_Round_Button* btnAudioIO[2]
-        { Fl_Input2* o = inpPulseServer = new Fl_Input2(512, 156, 225, 24, gettext("Server string:"));
+        { Fl_Input2* o = inpPulseServer = new Fl_Input2(512, 88, 225, 24, gettext("Server string:"));
           inpPulseServer->tooltip(gettext("Leave this blank or refer to\nhttp://www.pulseaudio.org/wiki/ServerStrings"));
           inpPulseServer->box(FL_DOWN_BOX);
           inpPulseServer->color(FL_BACKGROUND2_COLOR);
@@ -18405,25 +18432,29 @@ Fl_Double_Window* ConfigureDialog() {
         } // Fl_Input2* inpPulseServer
         AudioPulse->end();
       } // Fl_Group* AudioPulse
-      { AudioNull = new Fl_Group(255, 190, 230, 45);
+      { Fl_Group* o = new Fl_Group(255, 116, 530, 32);
+        o->box(FL_ENGRAVED_FRAME);
+        { btnAudioIO[4] = new Fl_Round_Button(267, 120, 90, 25, gettext("TCI"));
+          btnAudioIO[4]->tooltip(gettext("Get RX/TX audio over the TCI connection (Rig Control/TCI tab) instead of a soundcard -- no driver needed"));
+          btnAudioIO[4]->down_box(FL_DOWN_BOX);
+          btnAudioIO[4]->selection_color((Fl_Color)0);
+          btnAudioIO[4]->callback((Fl_Callback*)cb_btnAudioIO4);
+        } // Fl_Round_Button* btnAudioIO[4]
+        o->end();
+      } // Fl_Group* o
+      { AudioNull = new Fl_Group(255, 148, 530, 32);
         AudioNull->box(FL_ENGRAVED_FRAME);
-        { btnAudioIO[3] = new Fl_Round_Button(268, 200, 100, 25, gettext("File I/O only"));
+        { btnAudioIO[3] = new Fl_Round_Button(267, 152, 100, 25, gettext("File I/O only"));
           btnAudioIO[3]->tooltip(gettext("NO AUDIO DEVICE AVAILABLE (or testing)"));
           btnAudioIO[3]->down_box(FL_DOWN_BOX);
           btnAudioIO[3]->selection_color((Fl_Color)1);
           btnAudioIO[3]->callback((Fl_Callback*)cb_btnAudioIO3);
         } // Fl_Round_Button* btnAudioIO[3]
-        { btnAudioIO[4] = new Fl_Round_Button(368, 200, 90, 25, gettext("TCI"));
-          btnAudioIO[4]->tooltip(gettext("Get RX/TX audio over the TCI connection (Rig Control/TCI tab) instead of a soundcard -- no driver needed"));
-          btnAudioIO[4]->down_box(FL_DOWN_BOX);
-          btnAudioIO[4]->selection_color((Fl_Color)1);
-          btnAudioIO[4]->callback((Fl_Callback*)cb_btnAudioIO4);
-        } // Fl_Round_Button* btnAudioIO[4]
         AudioNull->end();
       } // Fl_Group* AudioNull
-      { AudioDuplex = new Fl_Group(485, 190, 270, 45);
+      { AudioDuplex = new Fl_Group(255, 180, 530, 32);
         AudioDuplex->box(FL_ENGRAVED_FRAME);
-        { Fl_Round_Button* o = btn_is_full_duplex = new Fl_Round_Button(528, 200, 225, 25, gettext("Device supports full duplex"));
+        { Fl_Round_Button* o = btn_is_full_duplex = new Fl_Round_Button(267, 184, 225, 25, gettext("Device supports full duplex"));
           btn_is_full_duplex->tooltip(gettext("Capture/Playback supports full duplex operation"));
           btn_is_full_duplex->down_box(FL_DOWN_BOX);
           btn_is_full_duplex->value(1);
@@ -18433,23 +18464,23 @@ Fl_Double_Window* ConfigureDialog() {
         } // Fl_Round_Button* btn_is_full_duplex
         AudioDuplex->end();
       } // Fl_Group* AudioDuplex
-      { AudioAlerts = new Fl_Group(255, 235, 500, 90);
+      { AudioAlerts = new Fl_Group(255, 220, 500, 90);
         AudioAlerts->box(FL_ENGRAVED_FRAME);
         AudioAlerts->align(Fl_Align(FL_ALIGN_CENTER));
-        { menuAlertsDev = new Fl_Choice(265, 260, 365, 25, gettext("Audio device shared by Audio Alerts and Rx Monitor"));
+        { menuAlertsDev = new Fl_Choice(265, 245, 365, 25, gettext("Audio device shared by Audio Alerts and Rx Monitor"));
           menuAlertsDev->tooltip(gettext("Audio output device"));
           menuAlertsDev->down_box(FL_BORDER_BOX);
           menuAlertsDev->callback((Fl_Callback*)cb_menuAlertsDev);
           menuAlertsDev->align(Fl_Align(FL_ALIGN_TOP_LEFT));
         } // Fl_Choice* menuAlertsDev
-        { Fl_Round_Button* o = btn_enable_audio_alerts = new Fl_Round_Button(657, 260, 76, 25, gettext("Enable"));
+        { Fl_Round_Button* o = btn_enable_audio_alerts = new Fl_Round_Button(657, 245, 76, 25, gettext("Enable"));
           btn_enable_audio_alerts->tooltip(gettext("First select audio alert playback device"));
           btn_enable_audio_alerts->down_box(FL_DOWN_BOX);
           btn_enable_audio_alerts->selection_color((Fl_Color)1);
           btn_enable_audio_alerts->callback((Fl_Callback*)cb_btn_enable_audio_alerts);
           o->value(progdefaults.enable_audio_alerts);
         } // Fl_Round_Button* btn_enable_audio_alerts
-        { Fl_Box* o = new Fl_Box(265, 295, 473, 22, gettext("Note: must be selected and enabled for Rx Audio monitoring!"));
+        { Fl_Box* o = new Fl_Box(265, 280, 473, 22, gettext("Note: must be selected and enabled for Rx Audio monitoring!"));
           o->align(Fl_Align(FL_ALIGN_CENTER|FL_ALIGN_INSIDE));
         } // Fl_Box* o
         AudioAlerts->end();

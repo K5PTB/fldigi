@@ -9155,6 +9155,7 @@ if (o->value()) {
   chkUSEHAMLIB->value(0);
   chkUSERIGCAT->value(0);
   chkUSETCI->value(0);
+  tci_audio_ui_enable(false);
 }
 progdefaults.changed=true;}
           tooltip {Disable if flrig not used.} xywh {234 81 70 15} down_box DOWN_BOX
@@ -9195,8 +9196,10 @@ progdefaults.changed=true;}
   progdefaults.chkUSERIGCATis = false;
   progdefaults.fldigi_client_to_flrig = false;
   progdefaults.chkUSETCIis = true;
+  tci_audio_ui_enable(true);
 } else {
   progdefaults.chkUSETCIis = false;
+  tci_audio_ui_enable(false);
   progdefaults.initInterface();
 }
 progdefaults.changed=true;}
@@ -9260,6 +9263,7 @@ progdefaults.changed = true;}
   progdefaults.chkUSERIGCATis = true;
   progdefaults.fldigi_client_to_flrig = false;
   progdefaults.chkUSETCIis = false;
+  tci_audio_ui_enable(false);
   btnInitRIGCAT->labelcolor(FL_RED);
   btnInitRIGCAT->redraw();
 } else {
@@ -9473,6 +9477,7 @@ if (o->value() == 1) {
   progdefaults.chkUSERIGCATis = false;
   progdefaults.fldigi_client_to_flrig = false;
   progdefaults.chkUSETCIis = false;
+  tci_audio_ui_enable(false);
   btnInitHAMLIB->labelcolor(FL_RED);
   btnInitHAMLIB->activate();
   btnInitHAMLIB->redraw();
@@ -10274,33 +10279,33 @@ progdefaults.changed = true;}
       code2 {tab_tree->add(_("Soundcard/Devices"));}
     } {
       Fl_Group AudioOSS {open
-        xywh {255 20 500 45} box ENGRAVED_FRAME
+        xywh {255 20 530 32} box ENGRAVED_FRAME
       } {
         Fl_Round_Button {btnAudioIO[0]} {
           label OSS
           callback {sound_update(SND_IDX_OSS);
 progdefaults.changed = true;
 resetSoundCard();}
-          tooltip {Use OSS audio server} xywh {267 30 53 25} down_box DOWN_BOX selection_color 1
+          tooltip {Use OSS audio server} xywh {267 24 53 25} down_box DOWN_BOX selection_color 1
         }
         Fl_Input_Choice menuOSSDev {
           label {Device:}
           callback {scDevice[0] = scDevice[1] = progdefaults.OSSdevice = o->value();
 resetSoundCard();
 progdefaults.changed = true;} open
-          tooltip {Select device} xywh {572 30 165 25}
+          tooltip {Select device} xywh {572 24 165 25}
           code0 {o->value(progdefaults.OSSdevice.c_str());}
         } {}
       }
       Fl_Group AudioPort {open
-        xywh {255 65 500 79} box ENGRAVED_FRAME
+        xywh {255 52 530 32} box ENGRAVED_FRAME
       } {
         Fl_Round_Button {btnAudioIO[1]} {
           label PortAudio
           callback {sound_update(SND_IDX_PORT);
 progdefaults.changed = true;
 resetSoundCard();}
-          tooltip {Use Port Audio server} xywh {267 93 95 25} down_box DOWN_BOX selection_color 1
+          tooltip {Use Port Audio server} xywh {267 56 95 25} down_box DOWN_BOX selection_color 1
         }
         Fl_Choice menuPortInDev {
           label {Capture:}
@@ -10308,7 +10313,7 @@ resetSoundCard();}
 progdefaults.PortInIndex = reinterpret_cast<intptr_t>(o->mvalue()->user_data());
 resetSoundCard();
 progdefaults.changed = true;} open
-          tooltip {Audio input device} xywh {427 76 310 25} down_box BORDER_BOX
+          tooltip {Audio input device} xywh {432 56 140 25} down_box BORDER_BOX
         } {}
         Fl_Choice menuPortOutDev {
           label {Playback:}
@@ -10316,18 +10321,18 @@ progdefaults.changed = true;} open
 progdefaults.PortOutIndex = reinterpret_cast<intptr_t>(o->mvalue()->user_data());
 resetSoundCard();
 progdefaults.changed = true;} open
-          tooltip {Audio output device} xywh {427 111 310 25} down_box BORDER_BOX
+          tooltip {Audio output device} xywh {650 56 130 25} down_box BORDER_BOX
         } {}
       }
       Fl_Group AudioPulse {open
-        xywh {255 145 500 45} box ENGRAVED_FRAME
+        xywh {255 84 530 32} box ENGRAVED_FRAME
       } {
         Fl_Round_Button {btnAudioIO[2]} {
           label PulseAudio
           callback {sound_update(SND_IDX_PULSE);
 progdefaults.changed = true;
 resetSoundCard();}
-          tooltip {Use Pulse Audio server} xywh {267 156 100 25} down_box DOWN_BOX selection_color 1
+          tooltip {Use Pulse Audio server} xywh {267 88 100 25} down_box DOWN_BOX selection_color 1
         }
         Fl_Input inpPulseServer {
           label {Server string:}
@@ -10335,63 +10340,67 @@ resetSoundCard();}
 resetSoundCard();
 progdefaults.changed = true;}
           tooltip {Leave this blank or refer to
-http://www.pulseaudio.org/wiki/ServerStrings} xywh {512 156 225 24}
+http://www.pulseaudio.org/wiki/ServerStrings} xywh {512 88 225 24}
           code0 {o->value(progdefaults.PulseServer.c_str());}
           code1 {inpPulseServer->labelsize(FL_NORMAL_SIZE);}
           class Fl_Input2
         }
       }
+      Fl_Group {open
+        xywh {255 116 530 32} box ENGRAVED_FRAME
+      } {
+        Fl_Round_Button {btnAudioIO[4]} {
+          label TCI
+          callback {sound_update(SND_IDX_TCI);
+progdefaults.changed = true;
+resetSoundCard();}
+          tooltip {Get RX/TX audio over the TCI connection (Rig Control/TCI tab) instead of a soundcard -- no driver needed} xywh {267 120 90 25} down_box DOWN_BOX selection_color 0
+        }
+      }
       Fl_Group AudioNull {open
-        xywh {255 190 230 45} box ENGRAVED_FRAME
+        xywh {255 148 530 32} box ENGRAVED_FRAME
       } {
         Fl_Round_Button {btnAudioIO[3]} {
           label {File I/O only}
           callback {sound_update(SND_IDX_NULL);
 progdefaults.changed = true;
 resetSoundCard();}
-          tooltip {NO AUDIO DEVICE AVAILABLE (or testing)} xywh {268 200 100 25} down_box DOWN_BOX selection_color 1
-        }
-        Fl_Round_Button {btnAudioIO[4]} {
-          label TCI
-          callback {sound_update(SND_IDX_TCI);
-progdefaults.changed = true;
-resetSoundCard();}
-          tooltip {Get RX/TX audio over the TCI connection (Rig Control/TCI tab) instead of a soundcard -- no driver needed} xywh {368 200 90 25} down_box DOWN_BOX selection_color 1
+          tooltip {NO AUDIO DEVICE AVAILABLE (or testing)} xywh {267 152 100 25} down_box DOWN_BOX selection_color 1
         }
       }
       Fl_Group AudioDuplex {open
-        xywh {485 190 270 45} box ENGRAVED_FRAME
+        xywh {255 180 530 32} box ENGRAVED_FRAME
       } {
         Fl_Round_Button btn_is_full_duplex {
           label {Device supports full duplex}
           callback {progdefaults.is_full_duplex = o->value();
 progdefaults.changed = true;
 resetSoundCard();}
-          tooltip {Capture/Playback supports full duplex operation} xywh {528 200 225 25} down_box DOWN_BOX value 1 selection_color 1
+          tooltip {Capture/Playback supports full duplex operation} xywh {267 184 225 25} down_box DOWN_BOX value 1 selection_color 1
           code0 {o->value(progdefaults.is_full_duplex);}
         }
       }
       Fl_Group AudioAlerts {open
-        xywh {255 235 500 90} box ENGRAVED_FRAME align 0
+        xywh {255 220 500 90} box ENGRAVED_FRAME align 0
       } {
         Fl_Choice menuAlertsDev {
           label {Audio device shared by Audio Alerts and Rx Monitor}
           callback {progdefaults.AlertDevice = o->text();
 progdefaults.AlertIndex = reinterpret_cast<intptr_t>(o->mvalue()->user_data());
 progdefaults.changed = true;} open
-          tooltip {Audio output device} xywh {265 260 365 25} down_box BORDER_BOX align 5
+          tooltip {Audio output device} xywh {265 245 365 25} down_box BORDER_BOX align 5
         } {}
         Fl_Round_Button btn_enable_audio_alerts {
           label Enable
           callback {progdefaults.enable_audio_alerts = o->value();
 progdefaults.changed = true;
 reset_audio_alerts();}
-          tooltip {First select audio alert playback device} xywh {657 260 76 25} down_box DOWN_BOX selection_color 1
+          tooltip {First select audio alert playback device} xywh {657 245 76 25} down_box DOWN_BOX selection_color 1
           code0 {o->value(progdefaults.enable_audio_alerts);}
         }
         Fl_Box {} {
           label {Note: must be selected and enabled for Rx Audio monitoring!}
-          xywh {265 295 473 22} align 16
+          xywh {265 280 473 22} align 16
         }
       }
     }

@@ -459,6 +459,13 @@ void sound_init(void)
 	btnAudioIO[SND_IDX_PULSE]->deactivate();
 	inpPulseServer->deactivate();
 #endif
+	// TCI audio only makes sense with the TCI CAT connection (Rig Control/
+	// TCI tab) actually enabled -- it's what the audio subscribe rides on.
+	// Kept in sync live thereafter by tci_audio_ui_enable() in
+	// confdialog.cxx, called from every checkbox that can turn TCI CAT on
+	// or off.
+	if (!progdefaults.chkUSETCIis)
+		btnAudioIO[SND_IDX_TCI]->deactivate();
 	if (progdefaults.btnAudioIOis == SND_IDX_UNKNOWN ||
 		!btnAudioIO[progdefaults.btnAudioIOis]->active()) { // or saved sound api now disabled
 		int io[4] = { SND_IDX_PORT, SND_IDX_PULSE, SND_IDX_OSS, SND_IDX_NULL };

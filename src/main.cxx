@@ -1272,11 +1272,18 @@ int main (int argc, char *argv[])
 #	ifndef __WIN32__
 	// See https://groups.google.com/g/fltkgeneral/c/hcjV-rgjHWM
 	// read in the current window hints, then modify them to allow icon transparency
-	XWMHints* hints = XGetWMHints(fl_display, fl_xid(fl_digi_main));
-	hints->flags |= IconMaskHint; // ensure transparency mask is enabled for the XPM icon
-	hints->icon_mask |= IconPixmapHint;
-	XSetWMHints(fl_display, fl_xid(fl_digi_main), hints);
-	XFree(hints);
+	// Guard: fl_x11_display() is NULL under FLTK 1.4's Wayland backend, where
+	// fl_xid() is not a real X11 window; the unguarded Xlib calls below then
+	// crash (SIGSEGV in XGetWMHints). Only touch WM hints under X11.
+	if (fl_x11_display()) {
+		XWMHints* hints = XGetWMHints(fl_display, fl_xid(fl_digi_main));
+		if (hints) {
+			hints->flags |= IconMaskHint; // ensure transparency mask is enabled for the XPM icon
+			hints->icon_mask |= IconPixmapHint;
+			XSetWMHints(fl_display, fl_xid(fl_digi_main), hints);
+			XFree(hints);
+		}
+	}
 #	endif
 
 #else

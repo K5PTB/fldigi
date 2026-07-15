@@ -191,11 +191,17 @@ void tci_on_mode_update()
 
 static void tci_do_ptt_update(void *)
 {
-	guard_lock lock(&tci_vals_mutex);
-	if (wf && (trx_state != STATE_TUNE)) {
-		wf->xmtrcv->value(tci_vals.ptt);
-		wf->xmtrcv->do_callback();
-	}
+	// Inbound TRX state reports what the *radio* is doing -- AetherSDR
+	// broadcasts it for its own front-panel Tune/TX and for other TCI
+	// clients, not only for transmits fldigi initiated. fldigi is the
+	// initiator of its own digital-mode TX and already updates its T/R
+	// control locally when the user or a macro keys it, so it must never
+	// start/stop its modem (or emit an RSID, or assert PTT) just because
+	// the radio reports TX. Driving wf->xmtrcv from here did exactly that:
+	// a panel Tune put fldigi into TX, and since fldigi then echoed
+	// TRX:0,true,tci back (trx.cxx -> tci_set_ptt) the radio stayed keyed,
+	// re-reporting TX -- a feedback loop that latched fldigi in transmit.
+	// tci_vals.ptt is still recorded by the caller for any status use.
 }
 
 void tci_on_ptt_update()

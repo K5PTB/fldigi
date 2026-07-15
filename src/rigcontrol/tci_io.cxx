@@ -67,6 +67,16 @@ static_assert(sizeof(TciAudioHeader) == 64, "TCI audio header must be 64 bytes")
 
 size_t tci_tx_audio_write(const float *buf, size_t count)
 {
+	// Real-time back-pressure so the modem's tx_process() loop is paced to
+	// AetherSDR's TX_CHRONO pull rate -- the throttle a blocking soundcard
+	// Write() used to provide. Without it the trx loop free-runs at CPU
+	// speed during TX/Tune: the waterfall races ~10x and on-air TX timing
+	// is wrong. Keep only a small real-time lead queued (low latency, but
+	// enough headroom over one ~21 ms TX_CHRONO block to avoid underruns).
+	// Bounded wait (~2 s) so a stalled/disconnected server can't wedge TX.
+	const size_t lead = TCI_AUDIO_SAMPLE_RATE / 10; // ~100 ms queued
+	for (int i = 0; i < 400 && tx_audio_rb.read_space() > lead; i++)
+		MilliSleep(5);
 	return tx_audio_rb.write(buf, count);
 }
 

@@ -26,6 +26,7 @@
 
 #include "tci_io.h"
 
+#include <atomic>
 #include <list>
 #include <string>
 #include <vector>
@@ -346,7 +347,13 @@ void handle_message(const std::string & message)
 	}
 }
 
-static bool tci_run = true;
+// Written by tci_close() on the main thread after the receiver thread is
+// already running, and read by tci_loop()'s condition -- there is no lock or
+// pthread_create/join edge ordering those two, so a plain bool is a data race
+// (ThreadSanitizer flags it) and the compiler is free to hoist the load out of
+// the loop. Atomic rather than mutex-guarded because the receiver thread must
+// never take run_mutex; see tci_queue().
+static std::atomic<bool> tci_run(true);
 static std::string  send_txt = "";
 
 static pthread_mutex_t send_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -408,7 +415,13 @@ void *tci_loop(void *)
 	return NULL;
 }
 
-static unsigned connection_generation = 0;
+// Bumped by tci_open() on the main thread, read by SoundTCI::Read() on
+// trx_thread once per audio block to notice a reconnect and re-subscribe.
+// Nothing synchronizes those two threads, so a plain unsigned is a race whose
+// practical cost is a missed generation bump: the audio device stays
+// subscribed to a dead socket and RX audio silently never returns. Atomic
+// keeps the read lock-free, which matters on the per-block audio path.
+static std::atomic<unsigned> connection_generation(0);
 
 unsigned tci_connection_generation(void)
 {

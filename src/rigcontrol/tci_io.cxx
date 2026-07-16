@@ -355,6 +355,26 @@ static pthread_t *receiver = (pthread_t *)0;
 
 static std::list<std::string> *send_list = (std::list<std::string> *)0;
 
+// Queue a command taking send_mutex only.
+//
+// The receiver thread must NEVER acquire run_mutex: tci_close() holds it
+// across pthread_join(), so any receiver-side acquisition deadlocks the two
+// threads against each other -- the closer waits for a join that cannot
+// happen while the receiver waits for a lock that is not coming back. That
+// invariant is why tci_loop() calls this rather than tci_send().
+//
+// Callers on other threads go through tci_send(), which wraps this in the
+// run_mutex guard that makes the send_list null-check safe against
+// tci_close() deleting the list.
+static void tci_queue(const std::string& txt)
+{
+	guard_lock S(&send_mutex);
+	if (!send_list) return;
+	send_list->push_back(txt);
+	if (txt.find("rx_smeter") == std::string::npos)
+		LOG_DEBUG("PUSH: %s", txt.c_str());
+}
+
 void *tci_loop(void *)
 {
 	// TCI servers report S-meter only on request (confirmed from flrig's
@@ -366,11 +386,13 @@ void *tci_loop(void *)
 	while (tci_run && tci_running()) {
 		if (++smeter_poll >= 100) {
 			smeter_poll = 0;
-			tci_send("rx_smeter:0,0;");
+			tci_queue("rx_smeter:0,0;");
 		}
-		if (!send_list->empty()) {
+		{
+			// The list must be examined under the lock: an unguarded
+			// empty() check races push_back() from tci_send().
 			guard_lock S(&send_mutex);
-			while (!send_list->empty()) {
+			while (send_list && !send_list->empty()) {
 				send_txt = send_list->front();
 				send_list->pop_front();
 				if (send_txt.find("rx_smeter") == std::string::npos)
@@ -398,29 +420,49 @@ void tci_open(std::string address, std::string port)
 	std::string url;
 	url.assign("ws://").append(address).append(":").append(port);
 
+	// Must be called before run_mutex is taken below: tci_close() acquires
+	// it itself, and guard_lock is not recursive.
 	if (ws) tci_close();
 
-	ws = WebSocket::from_url(url);
+	// Connect into a local, then publish only on success. Assigning straight
+	// into the global would leave it dangling on the failure path, where the
+	// socket is deleted but the pointer would survive for tci_running() to
+	// dereference and tci_close() to free a second time.
+	WebSocket::pointer sock = WebSocket::from_url(url);
 
-	if (ws && (ws->getReadyState() != WebSocket::CLOSED)) {
+	if (!sock || sock->getReadyState() == WebSocket::CLOSED) {
+		delete sock;
+		return;
+	}
 
+	// send_list, tci_run, receiver and ws are all reachable from tci_send()
+	// on trx_thread and from tci_close() on the main thread; publishing them
+	// unlocked races a concurrent tci_send() into the list.
+	guard_lock R(&run_mutex);
+
+	ws = sock;
+
+	{
+		guard_lock S(&send_mutex);
 		if (!send_list)
 			send_list = new std::list<std::string>;
 		send_list->clear();
+	}
 
-		tci_run = true;
-		++connection_generation;
+	tci_run = true;
+	++connection_generation;
 
-		receiver = new pthread_t;
-		if (pthread_create(receiver, NULL, tci_loop, NULL) < 0) {
-			LOG_ERROR("%s", "tci pthread_create failed");
-			delete receiver;
-			receiver = (pthread_t *)0;
-			delete ws;
-			ws = (WebSocket::pointer)0;
-		}
-	} else
+	receiver = new pthread_t;
+	// pthread_create returns a positive errno on failure and 0 on success --
+	// never a negative value, so a "< 0" test never fires and leaves an
+	// uninitialized pthread_t for tci_close() to join.
+	if (pthread_create(receiver, NULL, tci_loop, NULL) != 0) {
+		LOG_ERROR("%s", "tci pthread_create failed");
+		delete receiver;
+		receiver = (pthread_t *)0;
 		delete ws;
+		ws = (WebSocket::pointer)0;
+	}
 }
 
 void tci_close()
@@ -430,6 +472,10 @@ void tci_close()
 	if (ws) {
 		tci_run = false;
 
+		// Safe to join while holding run_mutex only because the receiver
+		// thread never asks for it -- see tci_queue(). send_list is deleted
+		// below rather than here for the same reason: the join must retire
+		// the only other user of the list first.
 		pthread_join(*receiver, NULL);
 		delete receiver;
 		receiver = (pthread_t *)0;
@@ -438,6 +484,7 @@ void tci_close()
 		ws = (WebSocket::pointer)0;
 	}
 
+	guard_lock S(&send_mutex);
 	delete send_list;
 	send_list = (std::list<std::string> *)0;
 }
@@ -445,13 +492,7 @@ void tci_close()
 void tci_send(std::string txt)
 {
 	guard_lock R(&run_mutex);
-	if (!send_list) return;
-	{
-		guard_lock S(&send_mutex);
-		send_list->push_back(txt);
-		if (txt.find("rx_smeter") == std::string::npos)
-			LOG_DEBUG("PUSH: %s", txt.c_str());
-	}
+	tci_queue(txt);
 }
 
 bool tci_running()

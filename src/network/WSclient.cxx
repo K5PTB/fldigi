@@ -115,7 +115,12 @@ socket_t hostname_connect(const std::string& hostname, int port) {
 	if ((ret = getaddrinfo(hostname.c_str(), sport, &hints, &result)) != 0)
 	{
 	  fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(ret));
-	  return 1;
+	  // Not "return 1": the caller tests against INVALID_SOCKET (-1), so a
+	  // literal 1 sails through the guard -- and 1 is stdout. An unresolvable
+	  // host then had the handshake ::send() onto fd 1, recv() read back from
+	  // it, and _RealWebSocket's destructor closesocket(1) the process's
+	  // stdout for good.
+	  return INVALID_SOCKET;
 	}
 	for(p = result; p != NULL; p = p->ai_next)
 	{
@@ -625,6 +630,23 @@ WSclient::WebSocket::pointer from_url(const std::string& url, bool useMask, cons
 		char line[1024];
 		int status;
 		int i;
+
+		// Bound the handshake reads. The socket is still blocking here --
+		// O_NONBLOCK is only set further down, after the handshake -- and the
+		// loops below recv() one byte at a time with no timeout of their own.
+		// A peer that completes the TCP connect and then says nothing (port
+		// 22, a hung TCI server) would block here forever, and tci_open() runs
+		// on the FLTK main thread, so that freezes the entire UI with no way
+		// to cancel. Harmless once the socket goes non-blocking below, where
+		// SO_RCVTIMEO no longer applies.
+#ifdef _WIN32
+		DWORD tv = 5000;
+#else
+		struct timeval tv;
+		tv.tv_sec = 5;
+		tv.tv_usec = 0;
+#endif
+		setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, (char*) &tv, sizeof(tv));
 		snprintf(line, 1024, "GET /%s HTTP/1.1\r\n", path); ::send(sockfd, line, strlen(line), 0);
 		if (port == 80) {
 			snprintf(line, 1024, "Host: %s\r\n", host); ::send(sockfd, line, strlen(line), 0);
@@ -640,13 +662,23 @@ WSclient::WebSocket::pointer from_url(const std::string& url, bool useMask, cons
 		snprintf(line, 1024, "Sec-WebSocket-Key: x3JJHMbDL1EzLkh9GBhXDw==\r\n"); ::send(sockfd, line, strlen(line), 0);
 		snprintf(line, 1024, "Sec-WebSocket-Version: 13\r\n"); ::send(sockfd, line, strlen(line), 0);
 		snprintf(line, 1024, "\r\n"); ::send(sockfd, line, strlen(line), 0);
-		for (i = 0; i < 2 || (i < 1023 && line[i-2] != '\r' && line[i-1] != '\n'); ++i) { if (recv(sockfd, line+i, 1, 0) == 0) { return NULL; } }
+		// recv() <= 0, not == 0: the original only treated a clean EOF as
+		// failure, so an error or (now) a timeout returning -1 fell through
+		// and spun i up to 1023 over uninitialized line[] bytes, reporting a
+		// bogus "invalid status line" instead of the real failure.
+		//
+		// Every failure exit below closes the socket. They all used to return
+		// NULL with it still open, and tci_init() retries on each Rig Control
+		// apply -- so pointing TCI at a plain HTTP server burned one fd per
+		// attempt and left the peer holding an ESTABLISHED connection until
+		// fldigi exited.
+		for (i = 0; i < 2 || (i < 1023 && line[i-2] != '\r' && line[i-1] != '\n'); ++i) { if (recv(sockfd, line+i, 1, 0) <= 0) { closesocket(sockfd); return NULL; } }
 		line[i] = 0;
-		if (i == 1023) { fprintf(stderr, "ERROR: Got invalid status line connecting to: %s\n", url.c_str()); return NULL; }
-		if (sscanf(line, "HTTP/1.1 %d", &status) != 1 || status != 101) { fprintf(stderr, "ERROR: Got bad status connecting to %s: %s", url.c_str(), line); return NULL; }
+		if (i == 1023) { fprintf(stderr, "ERROR: Got invalid status line connecting to: %s\n", url.c_str()); closesocket(sockfd); return NULL; }
+		if (sscanf(line, "HTTP/1.1 %d", &status) != 1 || status != 101) { fprintf(stderr, "ERROR: Got bad status connecting to %s: %s", url.c_str(), line); closesocket(sockfd); return NULL; }
 		// TODO: verify response headers,
 		while (true) {
-			for (i = 0; i < 2 || (i < 1023 && line[i-2] != '\r' && line[i-1] != '\n'); ++i) { if (recv(sockfd, line+i, 1, 0) == 0) { return NULL; } }
+			for (i = 0; i < 2 || (i < 1023 && line[i-2] != '\r' && line[i-1] != '\n'); ++i) { if (recv(sockfd, line+i, 1, 0) <= 0) { closesocket(sockfd); return NULL; } }
 			if (line[0] == '\r' && line[1] == '\n') { break; }
 		}
 	}

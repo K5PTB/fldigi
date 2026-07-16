@@ -139,7 +139,15 @@ static void handle_tx_chrono(const TciAudioHeader& chrono)
 	out.type = 2; // TX_AUDIO
 	out.channels = 2;
 
-	std::vector<uint8_t> frame(sizeof(out) + frames * 2 * sizeof(float));
+	// Reused across calls, like the mono buffer above. A fresh vector here
+	// would malloc and zero-fill ~8 KB per ~21 ms TX_CHRONO on the receiver
+	// thread -- the thread that owes the reply promptly -- and the memcpy and
+	// interleave loop below overwrite every byte of it immediately, so the
+	// zero-fill is pure waste. resize() keeps the capacity, so steady state
+	// is allocation-free. Safe as a static: handle_tx_chrono() is only ever
+	// reached from tci_loop() via handle_binary().
+	static std::vector<uint8_t> frame;
+	frame.resize(sizeof(out) + frames * 2 * sizeof(float));
 	memcpy(frame.data(), &out, sizeof(out));
 	float *dst = reinterpret_cast<float*>(frame.data() + sizeof(out));
 	for (size_t i = 0; i < frames; i++) {

@@ -199,16 +199,43 @@ static void handle_binary(const std::vector<uint8_t>& msg)
 	rx_audio_rb.write(mono.data(), frames); // drops overflow if consumer is slow/absent
 }
 
+// Values arrive semicolon-terminated ("modulation:0,cw;"), and %s stops only
+// at whitespace -- which TCI payloads never contain -- so the ';' rides along
+// in the token and must be removed before the value is compared or looked up.
+static std::string tci_trim(const char *tok)
+{
+	std::string s(tok);
+	size_t n = s.find_last_not_of(';');
+	return n == std::string::npos ? std::string() : s.substr(0, n + 1);
+}
+
+// As tci_trim(), but also drops any trailing comma-separated arguments. The
+// TX-routing form this file sends, "TRX:0,true,tci;", is echoed back by the
+// server, so the ptt token arrives as "TRUE,TCI;" and must reduce to "TRUE"
+// to compare equal against the plain "TRX:0,true;" form's token.
+static std::string tci_first(const char *tok)
+{
+	std::string s = tci_trim(tok);
+	size_t n = s.find(',');
+	if (n != std::string::npos) s.erase(n);
+	return s;
+}
+
 // fldigi tracks a single TRX/receiver (RX0) via TCI; the rxnbr/slice index
 // carried by the protocol is parsed but ignored (accept updates regardless
 // of which receiver/slice they were addressed to), unlike flrig which
 // tracks slice_0/slice_1 independently.
+//
+// Every sscanf() below is checked: the scratch variables are read straight
+// into tci_vals and pushed to the UI, so a short or malformed frame must not
+// be allowed to store an indeterminate value. The "%49s" width is required --
+// szstr is 50 bytes and the token is attacker-controlled (the ws:// link is
+// unauthenticated), so an unbounded %s is a remote stack smash.
 void handle_message(const std::string & message)
 {
-	int rxnbr, vfo, ival;
-	float fval;
-	char szstr[50];
-	std::string str;
+	int rxnbr = 0, vfo = 0, ival = 0;
+	float fval = 0.0f;
+	char szstr[50] = "";
 	std::string rx = message;
 	size_t p = 0;
 
@@ -218,7 +245,8 @@ void handle_message(const std::string & message)
 	LOG_DEBUG("R: %s", rx.c_str());
 
 	if ((p = rx.find("RX_SMETER:")) != std::string::npos) { // smeter reading
-		sscanf(rx.substr(p).c_str(), "RX_SMETER:%d,%d,%d;", &rxnbr, &vfo, &ival);
+		if (sscanf(rx.substr(p).c_str(), "RX_SMETER:%d,%d,%d;", &rxnbr, &vfo, &ival) != 3)
+			return;
 		{
 			guard_lock lock(&tci_vals_mutex);
 			if (vfo == 0) tci_vals.A.smeter = ival;
@@ -227,7 +255,8 @@ void handle_message(const std::string & message)
 		tci_on_smeter_update();
 	}
 	else if ((p = rx.find("VFO:")) != std::string::npos) { // vfo:0,0,7032050;
-		sscanf(rx.substr(p).c_str(), "VFO:%d,%d,%d", &rxnbr, &vfo, &ival);
+		if (sscanf(rx.substr(p).c_str(), "VFO:%d,%d,%d", &rxnbr, &vfo, &ival) != 3)
+			return;
 		{
 			guard_lock lock(&tci_vals_mutex);
 			if (vfo == 0) tci_vals.A.freq = ival;
@@ -236,74 +265,82 @@ void handle_message(const std::string & message)
 		if (vfo == 0) tci_on_freq_update();
 	}
 	else if ((p = rx.find("DDS:")) != std::string::npos) { // dds:1,14070000;
-		sscanf(rx.substr(p).c_str(), "DDS:%d,%d", &rxnbr, &ival);
+		if (sscanf(rx.substr(p).c_str(), "DDS:%d,%d", &rxnbr, &ival) != 2)
+			return;
 		guard_lock lock(&tci_vals_mutex);
 		tci_vals.dds = ival;
 	}
 	else if ((p = rx.find("RX_FILTER_BAND:")) != std::string::npos) { // rx_filter_band:0,-600,600;
-		int slice;
-		sscanf(rx.substr(p).c_str(), "RX_FILTER_BAND:%d,%s", &slice, szstr);
+		int slice = 0;
+		if (sscanf(rx.substr(p).c_str(), "RX_FILTER_BAND:%d,%49s", &slice, szstr) != 2)
+			return;
 		guard_lock lock(&tci_vals_mutex);
-		tci_vals.A.bw = tci_vals.B.bw = szstr;
+		tci_vals.A.bw = tci_vals.B.bw = tci_trim(szstr); // "-600,600", both edges kept
 	}
 	else if ((p = rx.find("MODULATION:")) != std::string::npos) { // modulation:0,cw;
 		int slice = 0;
-		sscanf(rx.substr(p).c_str(), "MODULATION:%d,%s", &slice, szstr);
+		if (sscanf(rx.substr(p).c_str(), "MODULATION:%d,%49s", &slice, szstr) != 2)
+			return;
 		{
 			guard_lock lock(&tci_vals_mutex);
-			tci_vals.A.mod = tci_vals.B.mod = szstr;
+			tci_vals.A.mod = tci_vals.B.mod = tci_first(szstr);
 		}
 		tci_on_mode_update();
 	}
-	else if ((p = rx.find("TRX:")) != std::string::npos) {
-		sscanf(rx.substr(p).c_str(), "TRX:%d,%s", &rxnbr, szstr);
-		str = szstr;
+	else if ((p = rx.find("TRX:")) != std::string::npos) { // trx:0,true; or trx:0,true,tci;
+		if (sscanf(rx.substr(p).c_str(), "TRX:%d,%49s", &rxnbr, szstr) != 2)
+			return;
 		{
 			guard_lock lock(&tci_vals_mutex);
-			tci_vals.ptt = (str == "TRUE;");
+			tci_vals.ptt = (tci_first(szstr) == "TRUE");
 		}
 		tci_on_ptt_update();
 	}
 	else if ((p = rx.find("SPLIT_ENABLE:")) != std::string::npos) { // split_enable:0,false;
-		sscanf(rx.substr(p).c_str(), "SPLIT_ENABLE:%d,%s", &rxnbr, szstr);
-		str = szstr;
+		if (sscanf(rx.substr(p).c_str(), "SPLIT_ENABLE:%d,%49s", &rxnbr, szstr) != 2)
+			return;
 		guard_lock lock(&tci_vals_mutex);
-		tci_vals.split = (str == "TRUE;");
+		tci_vals.split = (tci_first(szstr) == "TRUE");
 	}
 	else if ((p = rx.find("VOLUME:")) != std::string::npos) { // volume:-16;
-		sscanf(rx.substr(p).c_str(), "VOLUME:%d", &ival);
+		if (sscanf(rx.substr(p).c_str(), "VOLUME:%d", &ival) != 1)
+			return;
 		guard_lock lock(&tci_vals_mutex);
 		tci_vals.vol = ival;
 	}
 	else if ((p = rx.find("SQL_ENABLE:")) != std::string::npos) { // sql_enable:1,false;
-		sscanf(rx.substr(p).c_str(), "SQL_ENABLE:%d,%s", &rxnbr, szstr);
-		str = szstr;
+		if (sscanf(rx.substr(p).c_str(), "SQL_ENABLE:%d,%49s", &rxnbr, szstr) != 2)
+			return;
 		guard_lock lock(&tci_vals_mutex);
-		tci_vals.sql = (str == "TRUE;");
+		tci_vals.sql = (tci_first(szstr) == "TRUE");
 	}
 	else if ((p = rx.find("SQL_LEVEL:")) != std::string::npos) { // sql_level:0,-79;
-		sscanf(rx.substr(p).c_str(), "SQL_LEVEL:%d,%d", &rxnbr, &ival);
+		if (sscanf(rx.substr(p).c_str(), "SQL_LEVEL:%d,%d", &rxnbr, &ival) != 2)
+			return;
 		guard_lock lock(&tci_vals_mutex);
 		tci_vals.sql_level = ival;
 	}
 	else if ((p = rx.find("DRIVE:")) != std::string::npos) { // drive:100;
-		sscanf(rx.substr(p).c_str(), "DRIVE:%d", &ival);
+		if (sscanf(rx.substr(p).c_str(), "DRIVE:%d", &ival) != 1)
+			return;
 		guard_lock lock(&tci_vals_mutex);
 		tci_vals.pwr = ival;
 	}
 	else if ((p = rx.find("TUNE:")) != std::string::npos) { // tune:0,false;
-		sscanf(rx.substr(p).c_str(), "TUNE:%d,%s", &rxnbr, szstr);
-		str = szstr;
+		if (sscanf(rx.substr(p).c_str(), "TUNE:%d,%49s", &rxnbr, szstr) != 2)
+			return;
 		guard_lock lock(&tci_vals_mutex);
-		tci_vals.tune = (str == "TRUE;");
+		tci_vals.tune = (tci_first(szstr) == "TRUE");
 	}
 	else if ((p = rx.find("TX_POWER:")) != std::string::npos) { // tx_power:4.3;
-		sscanf(rx.substr(p).c_str(), "TX_POWER:%f", &fval);
+		if (sscanf(rx.substr(p).c_str(), "TX_POWER:%f", &fval) != 1)
+			return;
 		guard_lock lock(&tci_vals_mutex);
 		tci_vals.tx_power = fval;
 	}
 	else if ((p = rx.find("TX_SWR:")) != std::string::npos) { // tx_swr:1.3;
-		sscanf(rx.substr(p).c_str(), "TX_SWR:%f", &fval);
+		if (sscanf(rx.substr(p).c_str(), "TX_SWR:%f", &fval) != 1)
+			return;
 		guard_lock lock(&tci_vals_mutex);
 		tci_vals.tx_swr = fval;
 	}

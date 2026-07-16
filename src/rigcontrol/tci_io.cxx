@@ -544,10 +544,54 @@ void tci_send(std::string txt)
 	tci_queue(txt);
 }
 
+// Unlocked, for the receiver thread's own loop condition: tci_loop() must
+// never take run_mutex (see tci_queue()), and it needs no lock anyway --
+// pthread_create()/pthread_join() bracket the whole lifetime of the ws it
+// reads, so tci_open() cannot be publishing and tci_close() cannot be
+// deleting while that thread is alive.
 bool tci_running()
 {
 	if (!ws) return false;
 	return (ws->getReadyState() != WebSocket::CLOSED);
+}
+
+// Same question, asked from a thread that has no such guarantee. trx_thread
+// reaches SoundTCI::Open()/flush() while the main thread may be inside
+// tci_close() deleting ws, so the read must be under the lock or it can land
+// on freed memory. Safe from any thread EXCEPT the receiver thread, which
+// would deadlock against tci_close()'s join.
+bool tci_connected(void)
+{
+	guard_lock R(&run_mutex);
+	return ws && (ws->getReadyState() != WebSocket::CLOSED);
+}
+
+// Block until the server has pulled everything queued for TX, so the caller
+// can drop PTT without truncating the tail of the transmission.
+//
+// tci_tx_audio_write() deliberately keeps a ~100 ms real-time lead queued, and
+// only the server's TX_CHRONO pulls drain it -- so without this the radio
+// unkeys with the last symbols and the trailing RSID still sitting in the
+// ring. Bounded (~2 s) on the same reasoning as the write side: a stalled or
+// disconnected server must not wedge trx_thread.
+//
+// Any residue left after a timeout is discarded rather than kept, because the
+// ring is FIFO: carried over, it would be radiated ahead of the *next*
+// transmission's preamble.
+bool tci_tx_audio_drain(void)
+{
+	for (int i = 0; i < 400 && tx_audio_rb.read_space(); i++) {
+		if (!tci_connected()) break;
+		MilliSleep(5);
+	}
+
+	size_t left = tx_audio_rb.read_space();
+	if (left) {
+		LOG_ERROR("TX drain incomplete: discarding %zu queued samples", left);
+		tx_audio_rb.reset();
+		return false;
+	}
+	return true;
 }
 
 void tci_audio_start(int trx)

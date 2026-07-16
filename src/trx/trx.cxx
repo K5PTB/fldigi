@@ -892,8 +892,21 @@ void trx_reset_loop()
 			if (!TXscard) break;
 			TXscard->Open(O_WRONLY, current_TXsamplerate = 8000);
 			TXsc_is_open = true;
-		} catch (...) {
-			reset_loop_msg = "TCI audio open failure";
+		} catch (const SndException& e) {
+			// The cards must be destroyed and nulled, as the SND_IDX_PULSE
+			// case above does. Leaving them behind meant a half-initialized
+			// pair survived the switch to SND_IDX_NULL: RXscard still a live,
+			// already-Open'd SoundTCI feeding the modem from the dead TCI
+			// device while the dialog claimed File I/O, and TXscard possibly
+			// NULL, so every "if (TXscard)" silently skipped transmit.
+			LOG_ERROR("%s", e.what());
+			if (RXscard) delete RXscard;
+			if (TXscard) delete TXscard;
+			RXscard = 0;
+			TXscard = 0;
+			RXsc_is_open = TXsc_is_open = false;
+			reset_loop_msg = "TCI audio open failure:\n";
+			reset_loop_msg.append(e.what());
 			progdefaults.btnAudioIOis = SND_IDX_NULL;
 			sound_update(progdefaults.btnAudioIOis);
 			REQ(show_reset_loop_alert);
@@ -989,8 +1002,27 @@ void trx_start(void)
 		TXscard = new SoundNull;
 		break;
 	case SND_IDX_TCI:
-		RXscard = new SoundTCI;
-		TXscard = new SoundTCI;
+		// SoundTCI's ctor throws SndException (src_new/src_callback_new can
+		// fail, e.g. an out-of-range sample_converter persisted in prefs).
+		// Unguarded, that propagated out of trx_start() into a startup path
+		// with no handler -> std::terminate() at launch, on every launch,
+		// with the bad value still in prefs and no way to reach the config
+		// dialog. The SND_IDX_PULSE case above is wrapped for this reason.
+		try {
+			RXscard = new SoundTCI;
+			TXscard = new SoundTCI;
+		} catch (const SndException& e) {
+			LOG_ERROR("%s", e.what());
+			if (RXscard) delete RXscard;
+			if (TXscard) delete TXscard;
+			RXscard = 0;
+			TXscard = 0;
+			reset_loop_msg = "TCI audio error:\n";
+			reset_loop_msg.append(e.what());
+			progdefaults.btnAudioIOis = SND_IDX_NULL; // file i/o
+			sound_update(progdefaults.btnAudioIOis);
+			REQ(show_reset_loop_alert);
+		}
 		break;
 	default:
 		abort();

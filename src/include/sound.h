@@ -376,7 +376,7 @@ public:
 	size_t	Write_stereo(double *, double *, size_t);
 	size_t	resample_write(float *buf, size_t count);
 	size_t	Read(float *, size_t);
-	void	flush(unsigned dir = UINT_MAX) { }
+	void	flush(unsigned dir = UINT_MAX);
 	bool	must_close(int dir = 0) { return false; }
 
 private:

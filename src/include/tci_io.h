@@ -99,6 +99,17 @@ extern size_t tci_rx_audio_available(void);
 // ~1024-frame/~21ms cadence.
 extern size_t tci_tx_audio_write(const float *buf, size_t count);
 
+// Blocks until the server has pulled the queued TX audio, so SoundTCI::flush()
+// can honour SoundBase's drain-before-PTT-drop contract. Bounded; returns
+// false and discards the residue if the server stops pulling. Must not be
+// called from tci_io.cxx's own receiver thread.
+extern bool tci_tx_audio_drain(void);
+
+// tci_running() without the receiver thread's lifetime guarantees -- takes
+// run_mutex, so it is safe from trx_thread/main but NOT from the receiver
+// thread. Use this from anything that is not tci_loop().
+extern bool tci_connected(void);
+
 // Bumped by tci_io.cxx every time tci_open() establishes a new underlying
 // connection. The TCI CAT connection (Rig Control/TCI tab) and the TCI
 // audio device (Soundcard/Devices tab) are independent subsystems -- a CAT

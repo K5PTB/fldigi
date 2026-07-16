@@ -2523,6 +2523,17 @@ SoundTCI::~SoundTCI()
 
 int SoundTCI::Open(int mode, int freq)
 {
+	// Every other backend throws when its device is unavailable, and that is
+	// what makes trx_reset_loop()'s SND_IDX_TCI catch -- and its fallback to
+	// SND_IDX_NULL with an alert -- reachable at all. Returning 0 regardless
+	// made that code dead: with TCI selected for audio but the server down or
+	// TCI CAT disabled, tci_send() silently drops the subscription commands on
+	// the floor (no send_list without a connection), Open() reported success,
+	// and the user got a working-looking sound device with permanent silence,
+	// no alert and no fallback.
+	if (!tci_connected())
+		throw SndException("TCI is not connected -- check Rig Control/TCI");
+
 	req_sample_rate = freq;
 	sample_frequency = TCI_AUDIO_SAMPLE_RATE;
 
@@ -2534,6 +2545,25 @@ int SoundTCI::Open(int mode, int freq)
 		rx_open = true;
 	}
 	return 0;
+}
+
+// SoundBase's drain contract: block until queued TX audio has actually gone
+// out, so the caller can drop PTT without cutting the transmission short.
+// SoundPort::flush() waits on spa_drain and SoundPulse::flush() drains the
+// stream for the same reason; this was an empty inline no-op, so trx.cxx's
+// flush() before push2talk->set(false) did nothing and every over lost its
+// tail -- and, the ring being FIFO, replayed that tail over the start of the
+// next one.
+//
+// Only the TX direction has anything of ours pending: tci_tx_audio_write()
+// maintains a deliberate ~100 ms lead in tx_audio_rb that only the server's
+// TX_CHRONO pulls consume. RX audio is read straight out of its ring by
+// Read(), with nothing queued on our side to push.
+void SoundTCI::flush(unsigned dir)
+{
+	if (dir != (unsigned)O_WRONLY && dir != UINT_MAX)
+		return;
+	tci_tx_audio_drain();
 }
 
 void SoundTCI::Close(unsigned dir)

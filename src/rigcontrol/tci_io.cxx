@@ -90,9 +90,14 @@ size_t tci_tx_audio_write(const float *buf, size_t count)
 // adjacent samples as accidental stereo pairs), which narrowband digital-
 // mode audio can easily trigger. Sending genuine duplicated pairs sidesteps
 // that ambiguity entirely by matching the one path known to work.
+// Ceiling on what one TX_CHRONO can make us allocate and send. AetherSDR asks
+// for 1024 frames (~21 ms); this leaves 16x headroom for a peer with a larger
+// block size while keeping the reply bounded at ~128 KB.
+static const size_t TCI_MAX_TX_FRAMES = 16384;
+
 static void handle_tx_chrono(const TciAudioHeader& chrono)
 {
-	static unsigned sent = 0, underruns = 0;
+	static unsigned sent = 0, underruns = 0, oversize = 0;
 
 	if (!ws) return;
 
@@ -100,6 +105,21 @@ static void handle_tx_chrono(const TciAudioHeader& chrono)
 	size_t total_req = chrono.length ? chrono.length : 2048;
 	size_t frames = total_req / channels_req;
 	if (frames == 0) frames = 1024;
+
+	// chrono.length is a peer-supplied uint32 and was used unvalidated: a
+	// garbage or hostile value (length=0xFFFFFFFF, channels=1) asks for 4e9
+	// frames, so mono.resize() and the reply vector below attempt 16 GB and
+	// 32 GB. std::bad_alloc would then unwind out of tci_loop(), which has no
+	// handler and is a pthread entry point -- std::terminate(), i.e. fldigi
+	// aborts mid-QSO. A merely buggy server does this as easily as a hostile
+	// one. Drop the block rather than clamp: a reply of the wrong length
+	// desyncs the stream anyway, and no sane peer asks for this.
+	if (frames > TCI_MAX_TX_FRAMES) {
+		if (++oversize <= 5 || oversize % 200 == 0)
+			LOG_ERROR("TX_CHRONO #%u asks %zu frames (length=%u channels=%u), max %zu -- dropped",
+				oversize, frames, chrono.length, chrono.channels, TCI_MAX_TX_FRAMES);
+		return;
+	}
 
 	static std::vector<float> mono;
 	mono.resize(frames);
@@ -168,9 +188,17 @@ static void handle_binary(const std::vector<uint8_t>& msg)
 
 	// hdr.length is trusted per spec, but clamp to what actually arrived
 	// rather than read past the buffer if a peer under-sends.
+	//
+	// The comparison must not multiply: hdr.length is a uint32, so on a 32-bit
+	// build (win32 ships one) "nsamples * bytes_per_sample" wraps in a 32-bit
+	// size_t -- length=0x40000000 with float32 gives 0x100000000, truncated to
+	// 0, so "0 > payload_bytes" is false and the clamp this comment promises
+	// never runs. nsamples then stays enormous and the loops below read
+	// gigabytes past the payload. Dividing the bound instead cannot overflow.
+	size_t max_samples = payload_bytes / bytes_per_sample;
 	size_t nsamples = hdr.length;
-	if (nsamples * bytes_per_sample > payload_bytes)
-		nsamples = payload_bytes / bytes_per_sample;
+	if (nsamples > max_samples)
+		nsamples = max_samples;
 	size_t frames = nsamples / channels;
 	if (frames == 0)
 		return;

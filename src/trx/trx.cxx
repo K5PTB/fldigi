@@ -635,6 +635,30 @@ void trx_tune_loop()
 }
 
 //=============================================================================
+
+// Key exactly one network-CAT mechanism, never both.
+//
+// flrig and TCI are mutually-exclusive CAT choices, but the loop used to
+// REQ(set_flrig_ptt) and REQ(tci_set_ptt) side by side in every state and let
+// each callee self-gate. Those gates disagree on what "active" means:
+// tci_set_ptt() checks the config flag chkUSETCIis, while set_flrig_ptt() acts
+// whenever connected_to_flrig is true -- and connected_to_flrig is a live
+// connection flag owned by the flrig poll thread, which stays set after the
+// user switches to TCI (unchecking flrig clears the config flag, not the
+// connection). So both fired: the flrig radio keyed AND the TCI radio keyed,
+// the latter on whatever frequency it was last left on, since freq/mode still
+// routed to flrig -- an unintended out-of-band emission on every transmit.
+//
+// Selecting on chkUSETCIis makes the choice single and explicit. (hamlib and
+// rigCAT PTT go through push2talk elsewhere, not through here.)
+static void set_cat_ptt(int on)
+{
+	if (progdefaults.chkUSETCIis)
+		REQ(tci_set_ptt, on);
+	else
+		REQ(set_flrig_ptt, on);
+}
+
 void *trx_loop(void *args)
 {
 	SET_THREAD_ID(TRX_TID);
@@ -668,36 +692,30 @@ void *trx_loop(void *args)
 			trx_state = STATE_ENDED;
 			// fall through
 		case STATE_ENDED:
-			REQ(set_flrig_ptt, 0);
-			REQ(tci_set_ptt, 0);
+			set_cat_ptt(0);
 			stop_deadman();
 			return 0;
 		case STATE_RESTART:
-			REQ(set_flrig_ptt, 0);
-			REQ(tci_set_ptt, 0);
+			set_cat_ptt(0);
 			stop_deadman();
 			trx_reset_loop();
 			break;
 		case STATE_NEW_MODEM:
-			REQ(set_flrig_ptt, 0);
-			REQ(tci_set_ptt, 0);
+			set_cat_ptt(0);
 			trx_start_modem_loop();
 			break;
 		case STATE_TX:
-			REQ(set_flrig_ptt, 1);
-			REQ(tci_set_ptt, 1);
+			set_cat_ptt(1);
 			start_deadman();
 			trx_trx_transmit_loop();
 			break;
 		case STATE_TUNE:
-			REQ(set_flrig_ptt, 1);
-			REQ(tci_set_ptt, 1);
+			set_cat_ptt(1);
 			start_deadman();
 			trx_tune_loop();
 			break;
 		case STATE_RX:
-			REQ(set_flrig_ptt, 0);
-			REQ(tci_set_ptt, 0);
+			set_cat_ptt(0);
 			stop_deadman();
 			trx_trx_receive_loop();
 			break;

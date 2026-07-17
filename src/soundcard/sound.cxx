@@ -2557,6 +2557,24 @@ int SoundTCI::Open(int mode, int freq)
 
 	LOG(debug::INFO_LEVEL, debug::LOG_RIGCONTROL, "SoundTCI::Open mode=%d freq=%d", mode, freq);
 
+	// Reset the resampler for the direction being opened, as every sibling
+	// does: SoundPulse::Open() calls src_data_reset() unconditionally on
+	// entry, SoundPort::Open() reaches it through init_stream(). trx.cxx
+	// Close()s and Open()s the card whenever the modem's sample rate changes
+	// and relies on that to reinitialize the converter -- it is the invariant
+	// the other backends uphold.
+	//
+	// SoundTCI created its SRC states once in the ctor and never touched them
+	// again, so filter history and the previous src_ratio survived every
+	// Close/Open cycle. libsamplerate ramps last_ratio -> src_ratio across the
+	// first block, so the first block after each mode change was pitch-smeared
+	// and the RX state additionally replayed the previous mode's buffered
+	// samples into the new decoder. On TX that went out on the air.
+	if ((mode == O_RDONLY || mode == O_RDWR) && rx_src_state)
+		src_reset(rx_src_state);
+	if ((mode == O_WRONLY || mode == O_RDWR) && tx_src_state)
+		src_reset(tx_src_state);
+
 	if (mode == O_RDONLY || mode == O_RDWR) {
 		tci_audio_start(0);
 		rx_conn_gen = tci_connection_generation();
@@ -2597,6 +2615,15 @@ void SoundTCI::flush(unsigned dir)
 
 	if (dir == (unsigned)O_RDONLY || dir == UINT_MAX) {
 		size_t dropped = tci_rx_audio_discard();
+
+		// The ring is not the only place stale audio hides. rx_src_state
+		// holds libsamplerate's filter history and any input it has buffered
+		// but not yet emitted, so discarding the ring alone still let the
+		// first samples after the flush be derived from audio captured while
+		// transmitting. Both have to go for the drop to mean anything.
+		if (rx_src_state)
+			src_reset(rx_src_state);
+
 		if (dropped)
 			LOG(debug::INFO_LEVEL, debug::LOG_RIGCONTROL,
 				"flush: dropped %u stale RX samples (%.2fs)",

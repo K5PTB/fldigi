@@ -34,6 +34,7 @@
 #include <cstdlib>
 #include <cerrno>
 #include <climits>
+#include <exception>
 
 #include <assert.h>
 #include <stdio.h>
@@ -568,6 +569,14 @@ void *tci_loop(void *)
 	// every 500ms (100 iterations * 5ms sleep below).
 	int smeter_poll = 0;
 
+	// Thread-boundary backstop. This is a pthread entry point, so any C++
+	// exception that escapes it calls std::terminate() and aborts fldigi. The
+	// individual allocation sites are bounded (WS_MAX_FRAME, TCI_MAX_TX_FRAMES,
+	// WS_MAX_TXBUF), but an escaping bad_alloc/length_error must degrade to a
+	// dropped connection, not a dead process -- fldigi stays up, and the audio
+	// layer falls back to File I/O the same as any other TCI disconnect.
+	try {
+
 	while (tci_run && tci_running()) {
 		if (++smeter_poll >= 100) {
 			smeter_poll = 0;
@@ -589,6 +598,12 @@ void *tci_loop(void *)
 		ws->poll();
 		ws->dispatchCombined(handle_message, handle_binary);
 		MilliSleep(5);
+	}
+
+	} catch (const std::exception& e) {
+		LOG_ERROR("TCI receiver thread exiting on exception: %s", e.what());
+	} catch (...) {
+		LOG_ERROR("%s", "TCI receiver thread exiting on unknown exception");
 	}
 	return NULL;
 }

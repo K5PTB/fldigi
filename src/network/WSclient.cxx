@@ -101,6 +101,13 @@ using WSclient::BytesCallback_Imp;
 
 namespace { // private module-only namespace
 
+// Bounds against an untrusted, unauthenticated peer. The ws:// link has no
+// authentication, so any framing field is attacker-controlled; these keep a
+// bad or hostile declaration from turning into unbounded memory growth on the
+// receiver thread (a pthread entry point with no exception handler).
+const int WS_MAX_FRAME = 1 << 20;   // 1 MiB; TCI RX_AUDIO frames are ~8 KB
+const int WS_MAX_TXBUF = 8 << 20;   // 8 MiB of unsent TX before we give up
+
 socket_t hostname_connect(const std::string& hostname, int port) {
 	struct addrinfo hints;
 	struct addrinfo *result;
@@ -147,8 +154,6 @@ class _DummyWebSocket : public WSclient::WebSocket
 	void sendPing() { }
 	void close() { }
 	readyStateValues getReadyState() const { return CLOSED; }
-	void _dispatch(Callback_Imp & callable) { }
-	void _dispatchBinary(BytesCallback_Imp& callable) { }
 	void _dispatchCombined(Callback_Imp&, BytesCallback_Imp&) { }
 };
 
@@ -307,122 +312,6 @@ class _RealWebSocket : public WSclient::WebSocket
 			close_socket();
 	}
 
-	// Callable must have signature: void(const std::string & message).
-	// Should work with C functions, C++ functors, and C++11 std::function and
-	// lambda:
-	//template<class Callable>
-	//void dispatch(Callable callable)
-	virtual void _dispatch(Callback_Imp & callable) {
-		struct CallbackAdapter : public BytesCallback_Imp
-			// Adapt void(const std::string<uint8_t>&) to void(const std::string&)
-		{
-			Callback_Imp& callable;
-			CallbackAdapter(Callback_Imp& callable) : callable(callable) { }
-			void operator()(const std::vector<uint8_t>& message) {
-				std::string stringMessage(message.begin(), message.end());
-				callable(stringMessage);
-			}
-		};
-		CallbackAdapter bytesCallback(callable);
-		_dispatchBinary(bytesCallback);
-	}
-
-	virtual void _dispatchBinary(BytesCallback_Imp & callable) {
-		// TODO: consider acquiring a lock on rxbuf...
-		if (isRxBad) {
-			return;
-		}
-		while (true) {
-			wsheader_type ws;
-			if (rxbuf.size() < 2) { return; /* Need at least 2 */ }
-			const uint8_t * data = (uint8_t *) &rxbuf[0]; // peek, but don't consume
-			ws.fin = (data[0] & 0x80) == 0x80;
-			ws.opcode = (wsheader_type::opcode_type) (data[0] & 0x0f);
-			ws.mask = (data[1] & 0x80) == 0x80;
-			ws.N0 = (data[1] & 0x7f);
-			ws.header_size = 2 + (ws.N0 == 126? 2 : 0) + (ws.N0 == 127? 8 : 0) + (ws.mask? 4 : 0);
-			if (rxbuf.size() < ws.header_size) { return; /* Need: ws.header_size - rxbuf.size() */ }
-			int i = 0;
-			if (ws.N0 < 126) {
-				ws.N = ws.N0;
-				i = 2;
-			}
-			else if (ws.N0 == 126) {
-				ws.N = 0;
-				ws.N |= ((uint64_t) data[2]) << 8;
-				ws.N |= ((uint64_t) data[3]) << 0;
-				i = 4;
-			}
-			else if (ws.N0 == 127) {
-				ws.N = 0;
-				ws.N |= ((uint64_t) data[2]) << 56;
-				ws.N |= ((uint64_t) data[3]) << 48;
-				ws.N |= ((uint64_t) data[4]) << 40;
-				ws.N |= ((uint64_t) data[5]) << 32;
-				ws.N |= ((uint64_t) data[6]) << 24;
-				ws.N |= ((uint64_t) data[7]) << 16;
-				ws.N |= ((uint64_t) data[8]) << 8;
-				ws.N |= ((uint64_t) data[9]) << 0;
-				i = 10;
-				if (ws.N & 0x8000000000000000ull) {
-					// https://tools.ietf.org/html/rfc6455 writes the "the most
-					// significant bit MUST be 0."
-					//
-					// We can't drop the frame, because (1) we don't we don't
-					// know how much data to skip over to find the next header,
-					// and (2) this would be an impractically long length, even
-					// if it were valid. So just close() and return immediately
-					// for now.
-					isRxBad = true;
-					fprintf(stderr, "ERROR: Frame has invalid frame length. Closing.\n");
-					close();
-					return;
-				}
-			}
-			if (ws.mask) {
-				ws.masking_key[0] = ((uint8_t) data[i+0]) << 0;
-				ws.masking_key[1] = ((uint8_t) data[i+1]) << 0;
-				ws.masking_key[2] = ((uint8_t) data[i+2]) << 0;
-				ws.masking_key[3] = ((uint8_t) data[i+3]) << 0;
-			}
-			else {
-				ws.masking_key[0] = 0;
-				ws.masking_key[1] = 0;
-				ws.masking_key[2] = 0;
-				ws.masking_key[3] = 0;
-			}
-
-			// Note: The checks above should hopefully ensure this addition
-			//       cannot overflow:
-			if (rxbuf.size() < ws.header_size+ws.N) { return; /* Need: ws.header_size+ws.N - rxbuf.size() */ }
-
-			// We got a whole message, now do something with it:
-			if (false) { }
-			else if (
-				   ws.opcode == wsheader_type::TEXT_FRAME
-				|| ws.opcode == wsheader_type::BINARY_FRAME
-				|| ws.opcode == wsheader_type::CONTINUATION
-			) {
-				if (ws.mask) { for (size_t i = 0; i != ws.N; ++i) { rxbuf[i+ws.header_size] ^= ws.masking_key[i&0x3]; } }
-				receivedData.insert(receivedData.end(), rxbuf.begin()+ws.header_size, rxbuf.begin()+ws.header_size+(size_t)ws.N);// just feed
-				if (ws.fin) {
-					callable((const std::vector<uint8_t>) receivedData);
-					receivedData.erase(receivedData.begin(), receivedData.end());
-					std::vector<uint8_t> ().swap(receivedData);// free memory
-				}
-			}
-			else if (ws.opcode == wsheader_type::PING) {
-				if (ws.mask) { for (size_t i = 0; i != ws.N; ++i) { rxbuf[i+ws.header_size] ^= ws.masking_key[i&0x3]; } }
-				std::string data(rxbuf.begin()+ws.header_size, rxbuf.begin()+ws.header_size+(size_t)ws.N);
-				sendData(wsheader_type::PONG, data.size(), data.begin(), data.end());
-			}
-			else if (ws.opcode == wsheader_type::PONG) { }
-			else if (ws.opcode == wsheader_type::CLOSE) { close(); }
-			else { fprintf(stderr, "ERROR: Got unexpected WebSocket message.\n"); close(); }
-
-			rxbuf.erase(rxbuf.begin(), rxbuf.begin() + ws.header_size+(size_t)ws.N);
-		}
-	}
 
 	// Single pass over rxbuf that routes each complete frame to the
 	// callback matching its real opcode, instead of _dispatch()/
@@ -444,6 +333,31 @@ class _RealWebSocket : public WSclient::WebSocket
 			ws.N0 = (data[1] & 0x7f);
 			ws.header_size = 2 + (ws.N0 == 126? 2 : 0) + (ws.N0 == 127? 8 : 0) + (ws.mask? 4 : 0);
 			if (rxbuf.size() < ws.header_size) { return; }
+
+			// RFC 6455 5.2: no extension is negotiated (the handshake sends no
+			// Sec-WebSocket-Extensions and discards the response headers), so
+			// any RSV bit set must fail the connection. Accepting it silently
+			// stripped RSV and fed e.g. a permessage-deflate payload into
+			// handle_binary() as if it were raw audio.
+			if (data[0] & 0x70) {
+				isRxBad = true;
+				fprintf(stderr, "ERROR: reserved bits set in frame. Closing.\n");
+				close();
+				return;
+			}
+
+			// RFC 6455 5.5: control frames (CLOSE/PING/PONG) carry at most 125
+			// bytes and must not be fragmented. Without this a peer could send
+			// a PING with a 64-bit length, and the PING branch below echoed
+			// whatever it received straight back as a PONG -- an invalid
+			// control frame fldigi itself generated, which a conformant peer
+			// answers with a protocol-error close mid-QSO.
+			if ((ws.opcode & 0x8) && (ws.N0 > 125 || !ws.fin)) {
+				isRxBad = true;
+				fprintf(stderr, "ERROR: malformed control frame. Closing.\n");
+				close();
+				return;
+			}
 			int i = 0;
 			if (ws.N0 < 126) {
 				ws.N = ws.N0;
@@ -484,6 +398,22 @@ class _RealWebSocket : public WSclient::WebSocket
 				ws.masking_key[1] = 0;
 				ws.masking_key[2] = 0;
 				ws.masking_key[3] = 0;
+			}
+
+			// Cap the declared frame size. The MSB check above only rejects
+			// lengths >= 2^63; everything below that was accepted, and until
+			// the whole frame arrives the code just `return`s and waits while
+			// poll() keeps appending to rxbuf. So an oversized declaration was
+			// not a bad frame, it was unbounded memory growth ending in
+			// std::bad_alloc on the receiver thread -- which is a pthread entry
+			// point with no handler, so std::terminate(). A buggy server does
+			// this as readily as a hostile one. TCI RX_AUDIO frames are ~8 KB;
+			// WS_MAX_FRAME (1 MiB) is orders of magnitude of headroom.
+			if (ws.N > WS_MAX_FRAME) {
+				isRxBad = true;
+				fprintf(stderr, "ERROR: frame length exceeds %d bytes. Closing.\n", WS_MAX_FRAME);
+				close();
+				return;
 			}
 
 			if (rxbuf.size() < ws.header_size+ws.N) { return; }
@@ -546,6 +476,20 @@ class _RealWebSocket : public WSclient::WebSocket
 		const uint8_t masking_key[4] = { 0x12, 0x34, 0x56, 0x78 };
 		// TODO: consider acquiring a lock on txbuf...
 		if (readyState == CLOSING || readyState == CLOSED) { return; }
+
+		// Shed rather than buffer without bound. poll() flushes txbuf on a
+		// non-blocking socket, so if the peer stops reading (stalled but not
+		// dropped -- a paused VM, a congested link) the send loop just breaks
+		// on EWOULDBLOCK and this keeps appending ~8 KB per TX_CHRONO, ~380
+		// KB/s, until bad_alloc terminates the receiver thread. Past the cap
+		// the connection is already failing to keep up, so drop the frame and
+		// fail the socket rather than the process. The cap is well above the
+		// handful of frames of legitimate in-flight TX audio.
+		if (txbuf.size() > WS_MAX_TXBUF) {
+			fprintf(stderr, "ERROR: send backlog exceeds %d bytes, peer not reading. Closing.\n", WS_MAX_TXBUF);
+			close_socket();
+			return;
+		}
 		std::vector<uint8_t> header;
 		header.assign(2 + (message_size >= 126 ? 2 : 0) + (message_size >= 65536 ? 6 : 0) + (useMask ? 4 : 0), 0);
 		header[0] = 0x80 | type;

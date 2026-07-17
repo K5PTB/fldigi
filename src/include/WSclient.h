@@ -64,43 +64,13 @@ class WebSocket {
     virtual void close() = 0;
     virtual readyStateValues getReadyState() const = 0;
 
-    template<class Callable>
-    void dispatch(Callable callable)
-        // For callbacks that accept a string argument.
-    { // N.B. this is compatible with both C++11 lambdas, functors and C function pointers
-        struct _Callback : public Callback_Imp {
-            Callable& callable;
-            _Callback(Callable& callable) : callable(callable) { }
-            void operator()(const std::string& message) { callable(message); }
-        };
-        _Callback callback(callable);
-        _dispatch(callback);
-    }
-
-    template<class Callable>
-    void dispatchBinary(Callable callable)
-        // For callbacks that accept a std::vector<uint8_t> argument.
-    { // N.B. this is compatible with both C++11 lambdas, functors and C function pointers
-        struct _Callback : public BytesCallback_Imp {
-            Callable& callable;
-            _Callback(Callable& callable) : callable(callable) { }
-            void operator()(const std::vector<uint8_t>& message) { callable(message); }
-        };
-        _Callback callback(callable);
-        _dispatchBinary(callback);
-    }
-
-    // dispatch()/dispatchBinary() each independently drain and consume every
-    // complete frame currently buffered, regardless of its actual opcode --
-    // dispatch() converts binary frames to (garbled) strings and hands them
-    // to the text callback, and by the time dispatchBinary() runs there's
-    // nothing left. That's harmless for a text-only caller (flrig's
-    // original usage), but breaks a connection carrying BOTH text and
-    // binary frames on one socket (TCI CAT + audio): calling both back to
-    // back silently drops every binary frame into the text callback.
-    // dispatchCombined() does a single pass and routes each frame to
-    // whichever callback matches its real opcode -- use this instead of
-    // calling dispatch()+dispatchBinary() together on the same connection.
+    // A connection carrying both text and binary frames on one socket (TCI CAT
+    // + audio) must dispatch in a single pass that routes each frame to the
+    // callback matching its real opcode. The earlier design had separate
+    // dispatch()/dispatchBinary() passes, each of which drained every buffered
+    // frame regardless of opcode -- so dispatch() converted binary frames to
+    // garbled strings for the text callback and dispatchBinary() then found
+    // nothing left. Those are gone; this is the only dispatcher.
     template<class TextCallable, class BinCallable>
     void dispatchCombined(TextCallable textCallable, BinCallable binCallable)
     {
@@ -120,8 +90,6 @@ class WebSocket {
     }
 
   protected:
-    virtual void _dispatch(Callback_Imp& callable) = 0;
-    virtual void _dispatchBinary(BytesCallback_Imp& callable) = 0;
     virtual void _dispatchCombined(Callback_Imp& textCallable, BytesCallback_Imp& binCallable) = 0;
 };
 

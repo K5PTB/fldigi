@@ -85,6 +85,7 @@ extern bool tci_running();
 extern void tci_audio_start(int trx);
 extern void tci_audio_stop(int trx);
 extern size_t tci_rx_audio_read(float *buf, size_t count);
+extern size_t tci_rx_audio_read_wait(float *buf, size_t count, int timeout_ms);
 
 // Drop whatever RX audio is queued, returning the number of samples dropped.
 // Must be called from the RX consumer's thread (trx_thread) -- it moves the

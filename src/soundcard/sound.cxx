@@ -2648,11 +2648,9 @@ void SoundTCI::Close(unsigned dir)
 long SoundTCI::src_read_cb(void* arg, float** data)
 {
 	SoundTCI *p = reinterpret_cast<SoundTCI*>(arg);
-	size_t n = 0;
-	for (int tries = 0; tries < 20 && n == 0; tries++) {
-		n = tci_rx_audio_read(p->rx_snd_buffer, p->rx_blocksize);
-		if (n == 0) MilliSleep(5);
-	}
+	// Block up to ~100 ms for the receiver thread to deliver a frame, waking
+	// the instant it arrives rather than polling in 5 ms steps.
+	size_t n = tci_rx_audio_read_wait(p->rx_snd_buffer, p->rx_blocksize, 100);
 	static unsigned starved = 0, fed = 0;
 	if (n == 0) {
 		if (++starved <= 5 || starved % 200 == 0)

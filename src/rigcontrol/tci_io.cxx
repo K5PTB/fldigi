@@ -43,6 +43,7 @@
 #include "ringbuffer.h"
 #include "threads.h"
 #include "misc.h"
+#include "timeops.h"
 #include "debug.h"
 
 LOG_FILE_SOURCE(debug::LOG_RIGCONTROL);
@@ -92,6 +93,23 @@ static_assert(sizeof(TciAudioHeader) == 64, "TCI audio header must be 64 bytes")
 static std::atomic<size_t> tx_written(0);      // writer-owned, published
 static std::atomic<size_t> tx_discard_mark(0); // writer-owned, published
 static size_t tx_read = 0;                     // reader-owned, private
+
+// Wake-ups between the receiver thread and trx_thread, replacing 5 ms poll
+// loops with event signalling. Each mutex guards only its wait/signal
+// handshake, not the ring (the rings keep their own single-reader/writer
+// safety). The lost-wakeup-free rule: the waiter checks the ring predicate
+// while holding the mutex before waiting, and the signaller takes the same
+// mutex around its signal -- so a write that lands between the waiter's check
+// and its wait cannot be missed.
+//
+// tx: handle_tx_chrono (receiver) signals after draining tx_audio_rb;
+//     tci_tx_audio_write (trx) waits while more than `lead` is still queued.
+// rx: handle_binary (receiver) signals after filling rx_audio_rb;
+//     src_read_cb (trx) waits for the ring to become non-empty.
+static pthread_mutex_t tx_wake_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t  tx_wake_cond  = PTHREAD_COND_INITIALIZER;
+static pthread_mutex_t rx_wake_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t  rx_wake_cond  = PTHREAD_COND_INITIALIZER;
 
 // Reader side. Skip anything the writer marked stale, never past the mark.
 static void tx_apply_discard(void)
@@ -150,10 +168,21 @@ size_t tci_tx_audio_write(const float *buf, size_t count)
 	// trx only re-checks state between invocations, so RX/Abort stop
 	// responding for minutes.
 	const size_t lead = TCI_AUDIO_SAMPLE_RATE / 10; // ~100 ms queued
-	for (int i = 0; i < 400 && tx_audio_rb.read_space() > lead; i++) {
-		if (!tci_connected())
-			break;
-		MilliSleep(5);
+	const int    max_wait_ms = 2000;                // overall bound
+	int waited = 0;
+	{
+		guard_lock L(&tx_wake_mutex);
+		while (tx_audio_rb.read_space() > lead && waited < max_wait_ms) {
+			// Re-check connection each pass rather than block on it: only the
+			// receiver thread drains this ring, and only while TX_CHRONO
+			// frames arrive, so a dropped socket means nothing will ever
+			// drain it and waiting longer is pointless. The 100 ms cap bounds
+			// how long a disconnect goes unnoticed.
+			if (!tci_connected())
+				break;
+			pthread_cond_timedwait_rel(&tx_wake_cond, &tx_wake_mutex, 0.1);
+			waited += 100;
+		}
 	}
 
 	size_t n = tx_audio_rb.write(buf, count);
@@ -209,6 +238,13 @@ static void handle_tx_chrono(const TciAudioHeader& chrono)
 	mono.resize(frames);
 	size_t got = tx_audio_rb.read(mono.data(), frames);
 	tx_read += got;
+
+	// Space freed: wake tci_tx_audio_write() if it is applying back-pressure.
+	{
+		guard_lock L(&tx_wake_mutex);
+		pthread_cond_signal(&tx_wake_cond);
+	}
+
 	if (got < frames) {
 		std::fill(mono.begin() + got, mono.end(), 0.0f); // underrun -> pad silence
 		if (++underruns <= 5 || underruns % 200 == 0)
@@ -319,6 +355,12 @@ static void handle_binary(const std::vector<uint8_t>& msg)
 			accepted, hdr.format, channels, frames, rx_audio_rb.write_space());
 
 	rx_audio_rb.write(mono.data(), frames); // drops overflow if consumer is slow/absent
+
+	// Data available: wake src_read_cb if it is waiting on an empty ring.
+	{
+		guard_lock L(&rx_wake_mutex);
+		pthread_cond_signal(&rx_wake_cond);
+	}
 }
 
 // TCI text protocol.
@@ -513,13 +555,28 @@ static void tci_queue(const std::string& txt)
 		LOG_DEBUG("PUSH: %s", txt.c_str());
 }
 
+static unsigned long mono_ms(void)
+{
+	struct timespec ts;
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	return (unsigned long)ts.tv_sec * 1000UL + ts.tv_nsec / 1000000UL;
+}
+
 void *tci_loop(void *)
 {
+	// ws->poll(POLL_MS) blocks in select() until the socket is readable (or a
+	// frame is ready to send), up to POLL_MS -- event-driven, unlike the old
+	// poll(0) + MilliSleep(5), which spun at 200 Hz and added up to 5 ms of
+	// latency to every inbound frame including each TX_CHRONO reply.
+	const int POLL_MS = 5;
+
 	// TCI servers report S-meter only on request (confirmed from flrig's
-	// tcisdr.cxx RIG_TCI_SDR::get_smeter(), which explicitly polls via
-	// "rx_smeter:0,0;" rather than receiving it unsolicited). Poll roughly
-	// every 500ms (100 iterations * 5ms sleep below).
-	int smeter_poll = 0;
+	// tcisdr.cxx RIG_TCI_SDR::get_smeter(), which polls via "rx_smeter:0,0;"
+	// rather than receiving it unsolicited). Cadence is now wall-clock, not an
+	// iteration count: with an event-driven poll the loop period varies with
+	// traffic, so counting iterations would poll erratically.
+	const unsigned long SMETER_MS = 500;
+	unsigned long next_smeter = mono_ms();
 
 	// Thread-boundary backstop. This is a pthread entry point, so any C++
 	// exception that escapes it calls std::terminate() and aborts fldigi. The
@@ -530,13 +587,17 @@ void *tci_loop(void *)
 	try {
 
 	while (tci_run && tci_running()) {
-		if (++smeter_poll >= 100) {
-			smeter_poll = 0;
+		unsigned long now = mono_ms();
+		if (now >= next_smeter) {
+			next_smeter = now + SMETER_MS;
 			tci_queue("rx_smeter:0,0;");
 		}
 		{
 			// The list must be examined under the lock: an unguarded
-			// empty() check races push_back() from tci_send().
+			// empty() check races push_back() from tci_send(). ws->send()
+			// only appends to txbuf (poll() does the socket write), so there
+			// is nothing here to pace -- the old MilliSleep(1) per message
+			// just held send_mutex longer and delayed the poll().
 			guard_lock S(&send_mutex);
 			while (send_list && !send_list->empty()) {
 				send_txt = send_list->front();
@@ -544,12 +605,10 @@ void *tci_loop(void *)
 				if (send_txt.find("rx_smeter") == std::string::npos)
 					LOG_DEBUG("SEND: %s", send_txt.c_str());
 				ws->send(send_txt);
-				MilliSleep(1);
 			}
 		}
-		ws->poll();
+		ws->poll(POLL_MS);
 		ws->dispatchCombined(handle_message, handle_binary);
-		MilliSleep(5);
 	}
 
 	} catch (const std::exception& e) {
@@ -706,9 +765,14 @@ bool tci_connected(void)
 // transmission's preamble.
 bool tci_tx_audio_drain(void)
 {
-	for (int i = 0; i < 400 && tx_audio_rb.read_space(); i++) {
-		if (!tci_connected()) break;
-		MilliSleep(5);
+	int waited = 0;
+	{
+		guard_lock L(&tx_wake_mutex);
+		while (tx_audio_rb.read_space() && waited < 2000) {
+			if (!tci_connected()) break;
+			pthread_cond_timedwait_rel(&tx_wake_cond, &tx_wake_mutex, 0.1);
+			waited += 100;
+		}
 	}
 
 	size_t left = tx_audio_rb.read_space();
@@ -744,5 +808,22 @@ void tci_audio_stop(int trx)
 
 size_t tci_rx_audio_read(float *buf, size_t count)
 {
+	return rx_audio_rb.read(buf, count);
+}
+
+// Read, blocking up to timeout_ms for the receiver thread to deliver a frame
+// if the ring is momentarily empty. Replaces src_read_cb's 20 x 5 ms poll.
+// The predicate (ring non-empty) is checked under rx_wake_mutex before waiting
+// and handle_binary() signals under the same mutex, so a frame that arrives in
+// the check/wait window is never missed.
+size_t tci_rx_audio_read_wait(float *buf, size_t count, int timeout_ms)
+{
+	size_t n = rx_audio_rb.read(buf, count);
+	if (n) return n;
+
+	guard_lock L(&rx_wake_mutex);
+	n = rx_audio_rb.read(buf, count);   // re-check under the lock
+	if (n) return n;
+	pthread_cond_timedwait_rel(&rx_wake_cond, &rx_wake_mutex, timeout_ms / 1000.0);
 	return rx_audio_rb.read(buf, count);
 }

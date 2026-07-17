@@ -91,6 +91,11 @@ extern void tci_audio_stop(int trx);
 extern size_t tci_rx_audio_read(float *buf, size_t count);
 extern size_t tci_rx_audio_available(void);
 
+// Drop whatever RX audio is queued, returning the number of samples dropped.
+// Must be called from the RX consumer's thread (trx_thread) -- it moves the
+// reader's own ring index. Backs SoundTCI::flush(O_RDONLY).
+extern size_t tci_rx_audio_discard(void);
+
 // TX audio (Stage 3): SoundTCI::Write()/Write_stereo() push modem TX audio,
 // already resampled to 48000 Hz mono, here. tci_io.cxx's receiver thread
 // drains this ring buffer each time a type=3 TX_CHRONO frame arrives from

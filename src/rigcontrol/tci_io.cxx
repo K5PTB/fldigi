@@ -113,6 +113,21 @@ static void tx_request_discard(void)
 	tx_discard_mark.store(tx_written.load());
 }
 
+// Drop everything currently queued for RX. Returns how much was dropped.
+//
+// No handshake needed here, unlike the TX side: the caller (SoundTCI::flush()
+// on trx_thread) IS rx_audio_rb's reader, so read_advance() moves its own
+// index and carries the barrier that makes the drop visible to the receiver
+// thread. The roles are simply reversed between the two rings -- on TX the
+// discarding thread is the writer, which is why that side needs a mark.
+size_t tci_rx_audio_discard(void)
+{
+	size_t n = rx_audio_rb.read_space();
+	if (n)
+		rx_audio_rb.read_advance(n);
+	return n;
+}
+
 size_t tci_tx_audio_write(const float *buf, size_t count)
 {
 	// Real-time back-pressure so the modem's tx_process() loop is paced to

@@ -2573,15 +2573,35 @@ int SoundTCI::Open(int mode, int freq)
 // tail -- and, the ring being FIFO, replayed that tail over the start of the
 // next one.
 //
-// Only the TX direction has anything of ours pending: tci_tx_audio_write()
-// maintains a deliberate ~100 ms lead in tx_audio_rb that only the server's
-// TX_CHRONO pulls consume. RX audio is read straight out of its ring by
-// Read(), with nothing queued on our side to push.
+// The two directions mean different things, and an earlier version of this
+// function got that wrong -- it handled only TX, on the reasoning that RX "is
+// read straight out of its ring by Read(), with nothing queued on our side to
+// push". That conflates flush's two jobs. For TX it means push pending output
+// out before the caller drops PTT. For RX it means DISCARD stale input, which
+// is exactly what SoundPort::flush() and SoundPulse::flush() do with audio
+// their device captured while fldigi was transmitting.
+//
+// Skipping the RX half was not cosmetic. progdefaults.is_full_duplex defaults
+// on, so trx.cxx never closes the RX card during TX and the audio_start
+// subscription stays live: the receiver thread keeps filling rx_audio_rb for
+// the whole over until the 65536-sample (1.36 s) ring saturates. On return to
+// receive, trx_trx_receive_loop() calls flush(O_RDONLY) precisely so the modem
+// does not decode that; with the call doing nothing, rx_init() was followed by
+// 1.36 s of fldigi's own transmission -- its tail and trailing RSID -- and
+// because Read() consumes at exactly real time the backlog never drained. RX
+// and the waterfall stayed ~1.4 s behind for the rest of the session.
 void SoundTCI::flush(unsigned dir)
 {
-	if (dir != (unsigned)O_WRONLY && dir != UINT_MAX)
-		return;
-	tci_tx_audio_drain();
+	if (dir == (unsigned)O_WRONLY || dir == UINT_MAX)
+		tci_tx_audio_drain();
+
+	if (dir == (unsigned)O_RDONLY || dir == UINT_MAX) {
+		size_t dropped = tci_rx_audio_discard();
+		if (dropped)
+			LOG(debug::INFO_LEVEL, debug::LOG_RIGCONTROL,
+				"flush: dropped %u stale RX samples (%.2fs)",
+				(unsigned)dropped, (double)dropped / TCI_AUDIO_SAMPLE_RATE);
+	}
 }
 
 void SoundTCI::Close(unsigned dir)

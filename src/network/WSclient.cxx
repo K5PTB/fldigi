@@ -218,12 +218,29 @@ class _RealWebSocket : public WSclient::WebSocket
 	// still sees an ESTABLISHED connection indefinitely. Guarantee cleanup
 	// here regardless of how the object was torn down.
 	~_RealWebSocket() {
-		if (readyState != CLOSED)
-			closesocket(sockfd);
+		close_socket();
 	}
 
 	readyStateValues getReadyState() const {
 	  return readyState;
+	}
+
+	// Close exactly once, and never leave sockfd holding a number the kernel
+	// has freed. The old code closed the socket in whichever loop hit EOF and
+	// then let the OTHER loop keep running on the same descriptor: the recv
+	// loop's close was followed straight into the send loop, which ::send()'d
+	// on the closed fd and closesocket()'d it a second time. On POSIX the fd
+	// number is reusable the instant the first close returns, and fldigi runs
+	// several other socket threads (xmlrpc, ARQ, KISS, flrig, the logbook) --
+	// so that second operation could hit an unrelated connection that had just
+	// been handed the same number. Setting sockfd = INVALID_SOCKET turns any
+	// use-after-close into a harmless EBADF instead of silent cross-talk.
+	void close_socket() {
+		if (sockfd != INVALID_SOCKET) {
+			closesocket(sockfd);
+			sockfd = INVALID_SOCKET;
+		}
+		readyState = CLOSED;
 	}
 
 	void poll(int timeout) { // timeout in milliseconds
@@ -246,7 +263,7 @@ class _RealWebSocket : public WSclient::WebSocket
 		}
 		while (true) {
 			// FD_ISSET(0, &rfds) will be true
-			int N = rxbuf.size();
+			size_t N = rxbuf.size();
 			ssize_t ret;
 			rxbuf.resize(N + 1500);
 			ret = recv(sockfd, (char*)&rxbuf[0] + N, 1500, 0);
@@ -257,15 +274,18 @@ class _RealWebSocket : public WSclient::WebSocket
 			}
 			else if (ret <= 0) {
 				rxbuf.resize(N);
-				closesocket(sockfd);
-				readyState = CLOSED;
 				fputs(ret < 0 ? "Connection error!\n" : "Connection closed!\n", stderr);
+				close_socket();
 				break;
 			}
 			else {
 				rxbuf.resize(N + ret);
 			}
 		}
+		// The recv loop may have closed the connection; do not run the send
+		// loop or the CLOSING check on a dead descriptor.
+		if (readyState == CLOSED)
+			return;
 		while (txbuf.size()) {
 			int ret = ::send(sockfd, (char*)&txbuf[0], txbuf.size(), 0);
 			if (false) { } // ??
@@ -273,19 +293,18 @@ class _RealWebSocket : public WSclient::WebSocket
 				break;
 			}
 			else if (ret <= 0) {
-				closesocket(sockfd);
-				readyState = CLOSED;
 				fputs(ret < 0 ? "Connection error!\n" : "Connection closed!\n", stderr);
+				close_socket();
 				break;
 			}
 			else {
 				txbuf.erase(txbuf.begin(), txbuf.begin() + ret);
 			}
 		}
-		if (!txbuf.size() && readyState == CLOSING) {
-			closesocket(sockfd);
-			readyState = CLOSED;
-		}
+		if (readyState == CLOSED)
+			return;
+		if (!txbuf.size() && readyState == CLOSING)
+			close_socket();
 	}
 
 	// Callable must have signature: void(const std::string & message).

@@ -108,6 +108,54 @@ namespace { // private module-only namespace
 const int WS_MAX_FRAME = 1 << 20;   // 1 MiB; TCI RX_AUDIO frames are ~8 KB
 const int WS_MAX_TXBUF = 8 << 20;   // 8 MiB of unsent TX before we give up
 
+// Cap on the TCP connect. tci_open() runs on the FLTK main thread, so a
+// blocking connect() to a host that silently drops SYNs freezes the whole UI
+// for the OS timeout (~75s on Linux/macOS) with no way to cancel. The earlier
+// SO_RCVTIMEO fix bounded only the post-connect handshake reads, not this.
+const int WS_CONNECT_TIMEOUT_SEC = 10;
+
+// connect() with a bounded wait: switch the socket to non-blocking, start the
+// connect, select() on writability, then restore blocking mode so the existing
+// handshake code (which uses blocking recv + SO_RCVTIMEO) runs unchanged.
+// Returns true on success. Errors and timeouts leave the caller to close the fd.
+bool connect_with_timeout(socket_t sockfd, const struct sockaddr* addr,
+			  socklen_t addrlen, int timeout_sec) {
+#ifdef _WIN32
+	u_long nb = 1; ioctlsocket(sockfd, FIONBIO, &nb);
+	const int inprogress = WSAEWOULDBLOCK;
+#else
+	int flags = fcntl(sockfd, F_GETFL, 0);
+	fcntl(sockfd, F_SETFL, flags | O_NONBLOCK);
+	const int inprogress = EINPROGRESS;
+#endif
+
+	bool ok = false;
+	if (connect(sockfd, addr, addrlen) == 0) {
+		ok = true;                       // immediate (loopback/cached)
+	}
+	else if (socketerrno == inprogress) {
+		fd_set wfds;
+		FD_ZERO(&wfds);
+		FD_SET(sockfd, &wfds);
+		timeval tv = { timeout_sec, 0 };
+		int s = select(sockfd + 1, NULL, &wfds, NULL, &tv);
+		if (s > 0) {
+			// Writable does not mean connected -- check the pending error.
+			int err = 0; socklen_t len = sizeof(err);
+			if (getsockopt(sockfd, SOL_SOCKET, SO_ERROR, (char*)&err, &len) == 0 && err == 0)
+				ok = true;
+		}
+		// s == 0 is the timeout; s < 0 is a select() error. Both fail.
+	}
+
+#ifdef _WIN32
+	nb = 0; ioctlsocket(sockfd, FIONBIO, &nb);
+#else
+	fcntl(sockfd, F_SETFL, flags);       // restore original (blocking) flags
+#endif
+	return ok;
+}
+
 socket_t hostname_connect(const std::string& hostname, int port) {
 	struct addrinfo hints;
 	struct addrinfo *result;
@@ -133,7 +181,7 @@ socket_t hostname_connect(const std::string& hostname, int port) {
 	{
 		sockfd = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
 		if (sockfd == INVALID_SOCKET) { continue; }
-		if (connect(sockfd, p->ai_addr, p->ai_addrlen) != SOCKET_ERROR) {
+		if (connect_with_timeout(sockfd, p->ai_addr, p->ai_addrlen, WS_CONNECT_TIMEOUT_SEC)) {
 			break;
 		}
 		closesocket(sockfd);

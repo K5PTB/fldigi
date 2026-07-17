@@ -31,6 +31,9 @@
 #include <string>
 #include <vector>
 #include <cstring>
+#include <cstdlib>
+#include <cerrno>
+#include <climits>
 
 #include <assert.h>
 #include <stdio.h>
@@ -317,54 +320,98 @@ static void handle_binary(const std::vector<uint8_t>& msg)
 	rx_audio_rb.write(mono.data(), frames); // drops overflow if consumer is slow/absent
 }
 
-// Values arrive semicolon-terminated ("modulation:0,cw;"), and %s stops only
-// at whitespace -- which TCI payloads never contain -- so the ';' rides along
-// in the token and must be removed before the value is compared or looked up.
-static std::string tci_trim(const char *tok)
+// TCI text protocol.
+//
+// A frame is one or more semicolon-terminated commands, each "cmd:arg,arg,...;"
+// with no whitespace anywhere. A frame may carry several -- the server batches
+// replies -- so "modulation:0,usb;drive:100;" is one message containing two
+// commands.
+//
+// This is parsed by splitting rather than searching. The previous version ran
+// an if/else-if chain of rx.find("CMD:") over the whole frame and sscanf'd the
+// remainder into a fixed char[50], which was wrong in four separate ways:
+//
+//   - find() is unanchored, so a command matched anywhere in the frame.
+//     "TUNE_DRIVE:20;" contains "DRIVE:" at offset 5, and DRIVE is tested
+//     first, so the tune drive level was parsed as the TX drive level and the
+//     TUNE_DRIVE branch was unreachable.
+//   - Only the first matching command in a batched frame was handled at all;
+//     the rest were silently dropped by the else-if chain.
+//   - "%s" has no whitespace to stop at, so it swallowed the rest of the frame
+//     into a 50-byte stack buffer -- a remote stack smash, later bounded with
+//     "%49s" but still leaving the token as "USB;VFO:0,0,7032050;DRIVE:100",
+//     which no consumer could match. Trimming the trailing ';' did not help,
+//     because the ';' was not at the end.
+//   - Values were sscanf'd into uninitialized scratch variables shared by
+//     every branch.
+//
+// Splitting on ';' and matching the command exactly removes all four: there is
+// no buffer to overflow, no chain order to get wrong, every command in a frame
+// is seen, and an argument cannot contain a ';' or a ',' by construction.
+
+// Split "a,b,c" into its comma-separated fields. An empty input yields one
+// empty field, which the arg_* accessors below reject.
+static std::vector<std::string> tci_args(const std::string& s)
 {
-	std::string s(tok);
-	size_t n = s.find_last_not_of(';');
-	return n == std::string::npos ? std::string() : s.substr(0, n + 1);
+	std::vector<std::string> v;
+	size_t p = 0;
+	for (;;) {
+		size_t c = s.find(',', p);
+		if (c == std::string::npos) { v.push_back(s.substr(p)); return v; }
+		v.push_back(s.substr(p, c - p));
+		p = c + 1;
+	}
 }
 
-// As tci_trim(), but also drops any trailing comma-separated arguments. The
-// TX-routing form this file sends, "TRX:0,true,tci;", is echoed back by the
-// server, so the ptt token arrives as "TRUE,TCI;" and must reduce to "TRUE"
-// to compare equal against the plain "TRX:0,true;" form's token.
-static std::string tci_first(const char *tok)
+// Strict accessors: the whole field must parse, or the command is ignored.
+// Nothing here is allowed to leave an indeterminate value behind for a caller
+// to store into tci_vals and push at the UI.
+static bool arg_int(const std::vector<std::string>& a, size_t i, int& out)
 {
-	std::string s = tci_trim(tok);
-	size_t n = s.find(',');
-	if (n != std::string::npos) s.erase(n);
-	return s;
+	if (i >= a.size() || a[i].empty()) return false;
+	char *end = 0;
+	errno = 0;
+	long v = strtol(a[i].c_str(), &end, 10);
+	if (*end || errno || v < INT_MIN || v > INT_MAX) return false;
+	out = (int)v;
+	return true;
+}
+
+static bool arg_float(const std::vector<std::string>& a, size_t i, float& out)
+{
+	if (i >= a.size() || a[i].empty()) return false;
+	char *end = 0;
+	errno = 0;
+	double v = strtod(a[i].c_str(), &end);
+	if (*end || errno) return false;
+	out = (float)v;
+	return true;
+}
+
+// "TRUE"/"FALSE". Tolerates the extra arguments this file's own tci_set_ptt()
+// sends -- "TRX:0,true,tci;" is echoed back by the server, so the flag is
+// args[1] and "tci" is args[2]; they are separate fields here rather than one
+// token that has to be re-split.
+static bool arg_bool(const std::vector<std::string>& a, size_t i, bool& out)
+{
+	if (i >= a.size()) return false;
+	if (a[i] == "TRUE")  { out = true;  return true; }
+	if (a[i] == "FALSE") { out = false; return true; }
+	return false;
 }
 
 // fldigi tracks a single TRX/receiver (RX0) via TCI; the rxnbr/slice index
 // carried by the protocol is parsed but ignored (accept updates regardless
 // of which receiver/slice they were addressed to), unlike flrig which
 // tracks slice_0/slice_1 independently.
-//
-// Every sscanf() below is checked: the scratch variables are read straight
-// into tci_vals and pushed to the UI, so a short or malformed frame must not
-// be allowed to store an indeterminate value. The "%49s" width is required --
-// szstr is 50 bytes and the token is attacker-controlled (the ws:// link is
-// unauthenticated), so an unbounded %s is a remote stack smash.
-void handle_message(const std::string & message)
+static void handle_command(const std::string& cmd, const std::vector<std::string>& a)
 {
-	int rxnbr = 0, vfo = 0, ival = 0;
-	float fval = 0.0f;
-	char szstr[50] = "";
-	std::string rx = message;
-	size_t p = 0;
+	int ival = 0, vfo = 0;
+	float fval = 0;
+	bool bval = false;
 
-	for (size_t n = 0; n < rx.length(); n++)
-		rx[n] = toupper(rx[n] & 0xFF);
-
-	LOG_DEBUG("R: %s", rx.c_str());
-
-	if ((p = rx.find("RX_SMETER:")) != std::string::npos) { // smeter reading
-		if (sscanf(rx.substr(p).c_str(), "RX_SMETER:%d,%d,%d;", &rxnbr, &vfo, &ival) != 3)
-			return;
+	if (cmd == "RX_SMETER") {              // rx_smeter:0,0,-73;
+		if (!arg_int(a, 1, vfo) || !arg_int(a, 2, ival)) return;
 		{
 			guard_lock lock(&tci_vals_mutex);
 			if (vfo == 0) tci_vals.A.smeter = ival;
@@ -372,9 +419,11 @@ void handle_message(const std::string & message)
 		}
 		tci_on_smeter_update();
 	}
-	else if ((p = rx.find("VFO:")) != std::string::npos) { // vfo:0,0,7032050;
-		if (sscanf(rx.substr(p).c_str(), "VFO:%d,%d,%d", &rxnbr, &vfo, &ival) != 3)
-			return;
+	else if (cmd == "VFO") {               // vfo:0,0,7032050;
+		if (!arg_int(a, 1, vfo) || !arg_int(a, 2, ival)) return;
+		// A negative frequency would be sign-extended to ~1.8e19 Hz by
+		// tci_do_freq_update()'s cast and handed to show_frequency().
+		if (ival < 0) return;
 		{
 			guard_lock lock(&tci_vals_mutex);
 			if (vfo == 0) tci_vals.A.freq = ival;
@@ -382,85 +431,97 @@ void handle_message(const std::string & message)
 		}
 		if (vfo == 0) tci_on_freq_update();
 	}
-	else if ((p = rx.find("DDS:")) != std::string::npos) { // dds:1,14070000;
-		if (sscanf(rx.substr(p).c_str(), "DDS:%d,%d", &rxnbr, &ival) != 2)
-			return;
+	else if (cmd == "DDS") {               // dds:0,14070000;
+		if (!arg_int(a, 1, ival) || ival < 0) return;
 		guard_lock lock(&tci_vals_mutex);
 		tci_vals.dds = ival;
 	}
-	else if ((p = rx.find("RX_FILTER_BAND:")) != std::string::npos) { // rx_filter_band:0,-600,600;
-		int slice = 0;
-		if (sscanf(rx.substr(p).c_str(), "RX_FILTER_BAND:%d,%49s", &slice, szstr) != 2)
-			return;
+	else if (cmd == "RX_FILTER_BAND") {    // rx_filter_band:0,-600,600;
+		if (a.size() < 3) return;
 		guard_lock lock(&tci_vals_mutex);
-		tci_vals.A.bw = tci_vals.B.bw = tci_trim(szstr); // "-600,600", both edges kept
+		tci_vals.A.bw = tci_vals.B.bw = a[1] + "," + a[2];
 	}
-	else if ((p = rx.find("MODULATION:")) != std::string::npos) { // modulation:0,cw;
-		int slice = 0;
-		if (sscanf(rx.substr(p).c_str(), "MODULATION:%d,%49s", &slice, szstr) != 2)
-			return;
+	else if (cmd == "MODULATION") {        // modulation:0,cw;
+		if (a.size() < 2 || a[1].empty()) return;
 		{
 			guard_lock lock(&tci_vals_mutex);
-			tci_vals.A.mod = tci_vals.B.mod = tci_first(szstr);
+			tci_vals.A.mod = tci_vals.B.mod = a[1];
 		}
 		tci_on_mode_update();
 	}
-	else if ((p = rx.find("TRX:")) != std::string::npos) { // trx:0,true; or trx:0,true,tci;
-		if (sscanf(rx.substr(p).c_str(), "TRX:%d,%49s", &rxnbr, szstr) != 2)
-			return;
+	else if (cmd == "TRX") {               // trx:0,true; or trx:0,true,tci;
+		if (!arg_bool(a, 1, bval)) return;
 		{
 			guard_lock lock(&tci_vals_mutex);
-			tci_vals.ptt = (tci_first(szstr) == "TRUE");
+			tci_vals.ptt = bval;
 		}
 		tci_on_ptt_update();
 	}
-	else if ((p = rx.find("SPLIT_ENABLE:")) != std::string::npos) { // split_enable:0,false;
-		if (sscanf(rx.substr(p).c_str(), "SPLIT_ENABLE:%d,%49s", &rxnbr, szstr) != 2)
-			return;
+	else if (cmd == "SPLIT_ENABLE") {      // split_enable:0,false;
+		if (!arg_bool(a, 1, bval)) return;
 		guard_lock lock(&tci_vals_mutex);
-		tci_vals.split = (tci_first(szstr) == "TRUE");
+		tci_vals.split = bval;
 	}
-	else if ((p = rx.find("VOLUME:")) != std::string::npos) { // volume:-16;
-		if (sscanf(rx.substr(p).c_str(), "VOLUME:%d", &ival) != 1)
-			return;
+	else if (cmd == "VOLUME") {            // volume:-16;
+		if (!arg_int(a, 0, ival)) return;
 		guard_lock lock(&tci_vals_mutex);
 		tci_vals.vol = ival;
 	}
-	else if ((p = rx.find("SQL_ENABLE:")) != std::string::npos) { // sql_enable:1,false;
-		if (sscanf(rx.substr(p).c_str(), "SQL_ENABLE:%d,%49s", &rxnbr, szstr) != 2)
-			return;
+	else if (cmd == "SQL_ENABLE") {        // sql_enable:0,false;
+		if (!arg_bool(a, 1, bval)) return;
 		guard_lock lock(&tci_vals_mutex);
-		tci_vals.sql = (tci_first(szstr) == "TRUE");
+		tci_vals.sql = bval;
 	}
-	else if ((p = rx.find("SQL_LEVEL:")) != std::string::npos) { // sql_level:0,-79;
-		if (sscanf(rx.substr(p).c_str(), "SQL_LEVEL:%d,%d", &rxnbr, &ival) != 2)
-			return;
+	else if (cmd == "SQL_LEVEL") {         // sql_level:0,-79;
+		if (!arg_int(a, 1, ival)) return;
 		guard_lock lock(&tci_vals_mutex);
 		tci_vals.sql_level = ival;
 	}
-	else if ((p = rx.find("DRIVE:")) != std::string::npos) { // drive:100;
-		if (sscanf(rx.substr(p).c_str(), "DRIVE:%d", &ival) != 1)
-			return;
+	else if (cmd == "DRIVE") {             // drive:100;
+		if (!arg_int(a, 0, ival)) return;
 		guard_lock lock(&tci_vals_mutex);
 		tci_vals.pwr = ival;
 	}
-	else if ((p = rx.find("TUNE:")) != std::string::npos) { // tune:0,false;
-		if (sscanf(rx.substr(p).c_str(), "TUNE:%d,%49s", &rxnbr, szstr) != 2)
-			return;
+	else if (cmd == "TUNE") {              // tune:0,false;
+		if (!arg_bool(a, 1, bval)) return;
 		guard_lock lock(&tci_vals_mutex);
-		tci_vals.tune = (tci_first(szstr) == "TRUE");
+		tci_vals.tune = bval;
 	}
-	else if ((p = rx.find("TX_POWER:")) != std::string::npos) { // tx_power:4.3;
-		if (sscanf(rx.substr(p).c_str(), "TX_POWER:%f", &fval) != 1)
-			return;
+	else if (cmd == "TX_POWER") {          // tx_power:4.3;
+		if (!arg_float(a, 0, fval)) return;
 		guard_lock lock(&tci_vals_mutex);
 		tci_vals.tx_power = fval;
 	}
-	else if ((p = rx.find("TX_SWR:")) != std::string::npos) { // tx_swr:1.3;
-		if (sscanf(rx.substr(p).c_str(), "TX_SWR:%f", &fval) != 1)
-			return;
+	else if (cmd == "TX_SWR") {            // tx_swr:1.3;
+		if (!arg_float(a, 0, fval)) return;
 		guard_lock lock(&tci_vals_mutex);
 		tci_vals.tx_swr = fval;
+	}
+	// Anything else -- including TUNE_DRIVE, which used to be eaten by DRIVE
+	// -- is simply not one of ours.
+}
+
+void handle_message(const std::string & message)
+{
+	std::string rx = message;
+
+	for (size_t n = 0; n < rx.length(); n++)
+		rx[n] = toupper(rx[n] & 0xFF);
+
+	LOG_DEBUG("R: %s", rx.c_str());
+
+	// Every ';'-terminated command in the frame, not just the first.
+	size_t p = 0;
+	while (p < rx.length()) {
+		size_t end = rx.find(';', p);
+		std::string seg = (end == std::string::npos) ? rx.substr(p)
+													 : rx.substr(p, end - p);
+		size_t colon = seg.find(':');
+		if (colon != std::string::npos && colon > 0)
+			handle_command(seg.substr(0, colon), tci_args(seg.substr(colon + 1)));
+
+		if (end == std::string::npos) break;
+		p = end + 1;
 	}
 }
 

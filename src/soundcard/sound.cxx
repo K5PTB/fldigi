@@ -2484,8 +2484,9 @@ void SoundPulse::src_data_reset(int mode)
 
 
 // ----------------------------------------------------------------------------
-// SoundTCI -- RX audio pulled from tci_io.cxx's ring buffer; TX is a Stage 3
-// TODO (see sound.h for the full design note).
+// SoundTCI -- RX audio is pulled from tci_io.cxx's rx ring buffer and TX audio
+// is pushed to its tx ring buffer; the receiver thread there bridges both to
+// the TCI WebSocket. See sound.h for the design note.
 // ----------------------------------------------------------------------------
 
 SoundTCI::SoundTCI()

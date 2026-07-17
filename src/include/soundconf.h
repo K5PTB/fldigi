@@ -53,4 +53,12 @@ class Fl_Choice;
 int pa_set_dev(Fl_Choice *choice, std::string dev_name, int dev_index);
 extern std::string str_pa_devices;
 
+// Enable/disable the TCI entry in the Soundcard/Devices radio group to track
+// whether TCI CAT is on. Defined in soundconf.cxx next to the identical
+// startup rule in sound_init(); the confdialog.fl CAT-checkbox callbacks call
+// it. Kept out of the FLUID-generated confdialog.cxx on purpose -- when it
+// lived there (hand-inserted into generated output) the next fluid save
+// dropped the definition and broke the build.
+extern void tci_audio_ui_enable(bool on);
+
 #endif // SOUNDCONF_H

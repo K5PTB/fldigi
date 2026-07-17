@@ -32,7 +32,6 @@
 
 extern bool tci_init();          // like hamlib_init() / rigCAT_init()
 extern void tci_cat_close();     // like hamlib_close() / rigCAT_close()
-extern bool tci_cat_active();    // like hamlib_active()
 
 extern void tci_set_qsy(unsigned long long f);   // like hamlib_set_qsy
 extern void tci_setfreq(unsigned long long f);   // like hamlib_setfreq

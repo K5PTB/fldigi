@@ -7118,21 +7118,6 @@ static void cb_btn_reconnect_flrig_server_mirror(Fl_Button*, void*) {
 // without triggering chkUSETCI's own callback, so each calls this directly
 // to keep the audio-device button in sync. Falls back to File I/O if TCI
 // audio was the active backend when CAT gets disabled out from under it.
-static void tci_audio_ui_enable(bool on) {
-  if (!btnAudioIO[4]) return; // not constructed yet
-  if (on) {
-    btnAudioIO[4]->activate();
-  } else {
-    if (progdefaults.btnAudioIOis == SND_IDX_TCI) {
-      sound_update(SND_IDX_NULL);
-      progdefaults.changed = true;
-      resetSoundCard();
-    }
-    btnAudioIO[4]->deactivate();
-  }
-  btnAudioIO[4]->redraw();
-}
-
 Fl_Check_Button *btn_fldigi_client_to_flrig=(Fl_Check_Button *)0;
 
 static void cb_btn_fldigi_client_to_flrig(Fl_Check_Button* o, void*) {

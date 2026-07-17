@@ -408,98 +408,50 @@ static bool arg_bool(const std::vector<std::string>& a, size_t i, bool& out)
 static void handle_command(const std::string& cmd, const std::vector<std::string>& a)
 {
 	int ival = 0, vfo = 0;
-	float fval = 0;
-	bool bval = false;
 
 	if (cmd == "RX_SMETER") {              // rx_smeter:0,0,-73;
-		if (!arg_int(a, 1, vfo) || !arg_int(a, 2, ival)) return;
+		if (!arg_int(a, 1, vfo) || vfo != 0 || !arg_int(a, 2, ival)) return;
 		{
 			guard_lock lock(&tci_vals_mutex);
-			if (vfo == 0) tci_vals.A.smeter = ival;
-			else          tci_vals.B.smeter = ival;
+			tci_vals.A.smeter = ival;
 		}
 		tci_on_smeter_update();
 	}
 	else if (cmd == "VFO") {               // vfo:0,0,7032050;
-		if (!arg_int(a, 1, vfo) || !arg_int(a, 2, ival)) return;
+		if (!arg_int(a, 1, vfo) || vfo != 0 || !arg_int(a, 2, ival)) return;
 		// A negative frequency would be sign-extended to ~1.8e19 Hz by
 		// tci_do_freq_update()'s cast and handed to show_frequency().
 		if (ival < 0) return;
 		{
 			guard_lock lock(&tci_vals_mutex);
-			if (vfo == 0) tci_vals.A.freq = ival;
-			else          tci_vals.B.freq = ival;
+			tci_vals.A.freq = ival;
 		}
-		if (vfo == 0) tci_on_freq_update();
-	}
-	else if (cmd == "DDS") {               // dds:0,14070000;
-		if (!arg_int(a, 1, ival) || ival < 0) return;
-		guard_lock lock(&tci_vals_mutex);
-		tci_vals.dds = ival;
-	}
-	else if (cmd == "RX_FILTER_BAND") {    // rx_filter_band:0,-600,600;
-		if (a.size() < 3) return;
-		guard_lock lock(&tci_vals_mutex);
-		tci_vals.A.bw = tci_vals.B.bw = a[1] + "," + a[2];
+		tci_on_freq_update();
 	}
 	else if (cmd == "MODULATION") {        // modulation:0,cw;
 		if (a.size() < 2 || a[1].empty()) return;
 		{
 			guard_lock lock(&tci_vals_mutex);
-			tci_vals.A.mod = tci_vals.B.mod = a[1];
+			tci_vals.A.mod = a[1];
 		}
 		tci_on_mode_update();
 	}
-	else if (cmd == "TRX") {               // trx:0,true; or trx:0,true,tci;
-		if (!arg_bool(a, 1, bval)) return;
-		{
-			guard_lock lock(&tci_vals_mutex);
-			tci_vals.ptt = bval;
-		}
-		tci_on_ptt_update();
-	}
-	else if (cmd == "SPLIT_ENABLE") {      // split_enable:0,false;
-		if (!arg_bool(a, 1, bval)) return;
-		guard_lock lock(&tci_vals_mutex);
-		tci_vals.split = bval;
-	}
-	else if (cmd == "VOLUME") {            // volume:-16;
-		if (!arg_int(a, 0, ival)) return;
-		guard_lock lock(&tci_vals_mutex);
-		tci_vals.vol = ival;
-	}
-	else if (cmd == "SQL_ENABLE") {        // sql_enable:0,false;
-		if (!arg_bool(a, 1, bval)) return;
-		guard_lock lock(&tci_vals_mutex);
-		tci_vals.sql = bval;
-	}
-	else if (cmd == "SQL_LEVEL") {         // sql_level:0,-79;
-		if (!arg_int(a, 1, ival)) return;
-		guard_lock lock(&tci_vals_mutex);
-		tci_vals.sql_level = ival;
-	}
-	else if (cmd == "DRIVE") {             // drive:100;
-		if (!arg_int(a, 0, ival)) return;
-		guard_lock lock(&tci_vals_mutex);
-		tci_vals.pwr = ival;
-	}
-	else if (cmd == "TUNE") {              // tune:0,false;
-		if (!arg_bool(a, 1, bval)) return;
-		guard_lock lock(&tci_vals_mutex);
-		tci_vals.tune = bval;
-	}
-	else if (cmd == "TX_POWER") {          // tx_power:4.3;
-		if (!arg_float(a, 0, fval)) return;
-		guard_lock lock(&tci_vals_mutex);
-		tci_vals.tx_power = fval;
-	}
-	else if (cmd == "TX_SWR") {            // tx_swr:1.3;
-		if (!arg_float(a, 0, fval)) return;
-		guard_lock lock(&tci_vals_mutex);
-		tci_vals.tx_swr = fval;
-	}
-	// Anything else -- including TUNE_DRIVE, which used to be eaten by DRIVE
-	// -- is simply not one of ours.
+	// Inbound TRX (radio PTT) is deliberately NOT handled. AetherSDR broadcasts
+	// it for its own front-panel Tune/TX and for other clients, not only for
+	// transmits fldigi initiated -- and fldigi is the authoritative initiator
+	// of its own digital-mode TX. Driving fldigi's T/R from a radio PTT report
+	// created a feedback loop: a panel Tune keyed fldigi, fldigi echoed
+	// TRX:0,true,tci back (tci_set_ptt), the radio stayed keyed and re-reported
+	// TX, latching fldigi in transmit. The one-way constraint is enforced here
+	// by there being no hook to fldigi's TX state, not by a comment asking for
+	// restraint. A radio-PTT *status indicator* could be added, but only if it
+	// cannot re-enter trx.
+	//
+	// Everything else the server volunteers (DDS, VOLUME, DRIVE, SQL_*, TUNE,
+	// SPLIT, TX_POWER, TX_SWR, RX_FILTER_BAND, TUNE_DRIVE, and the second
+	// receiver's reports) has no consumer in fldigi and is ignored. fldigi
+	// tracks a single receiver (RX0); reports addressed to other slices are
+	// dropped by the vfo != 0 guards above.
 }
 
 void handle_message(const std::string & message)
@@ -793,9 +745,4 @@ void tci_audio_stop(int trx)
 size_t tci_rx_audio_read(float *buf, size_t count)
 {
 	return rx_audio_rb.read(buf, count);
-}
-
-size_t tci_rx_audio_available(void)
-{
-	return rx_audio_rb.read_space();
 }

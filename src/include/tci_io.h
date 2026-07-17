@@ -38,23 +38,19 @@
 #define TCI_AUDIO_SAMPLE_RATE 48000
 
 // fldigi controls a single TRX/receiver (RX0) via TCI, unlike flrig which
-// tracks two independent slices (slice_0/slice_1). Stage 1 is CAT only:
-// VFO A frequency/mode/PTT/S-meter/split. Stage 2/3 (RX/TX audio) will add
-// fields here as needed.
+// tracks two independent slices (slice_0/slice_1). Only the fields fldigi
+// actually consumes are kept: everything else the protocol reports (DDS,
+// volume, drive, squelch, tune, split, TX power/SWR, filter bandwidth,
+// inbound PTT, and the second receiver) had no reader and is no longer parsed
+// -- see handle_command() in tci_io.cxx.
 struct TCI_VFO {
 	int freq;
-	std::string bw;  // lower, upper pair
-	std::string mod; // noun name
+	std::string mod;
 	int smeter;
 };
 
 struct TCI_VALS {
 	TCI_VFO A;
-	TCI_VFO B;
-	int dds;
-	int vol, sql_level, pwr;
-	bool ptt, tune, split, sql;
-	float tx_power, tx_swr;
 };
 
 extern TCI_VALS tci_vals;
@@ -80,7 +76,7 @@ extern void tci_close();
 extern void tci_send(std::string txt);
 extern bool tci_running();
 
-// RX audio (Stage 2): subscribe/unsubscribe TRX 0's audio stream, and pull
+// RX audio: subscribe/unsubscribe TRX 0's audio stream, and pull
 // mono float samples the receiver thread has decoded from binary TCI
 // frames into an internal ring buffer. tci_audio_start() requests a fixed
 // format (48000 Hz, mono, float32) so SoundTCI never has to branch on
@@ -89,14 +85,13 @@ extern bool tci_running();
 extern void tci_audio_start(int trx);
 extern void tci_audio_stop(int trx);
 extern size_t tci_rx_audio_read(float *buf, size_t count);
-extern size_t tci_rx_audio_available(void);
 
 // Drop whatever RX audio is queued, returning the number of samples dropped.
 // Must be called from the RX consumer's thread (trx_thread) -- it moves the
 // reader's own ring index. Backs SoundTCI::flush(O_RDONLY).
 extern size_t tci_rx_audio_discard(void);
 
-// TX audio (Stage 3): SoundTCI::Write()/Write_stereo() push modem TX audio,
+// TX audio: SoundTCI::Write()/Write_stereo() push modem TX audio,
 // already resampled to 48000 Hz mono, here. tci_io.cxx's receiver thread
 // drains this ring buffer each time a type=3 TX_CHRONO frame arrives from
 // the server and answers with a type=2 TX_AUDIO frame -- pacing is driven
@@ -125,15 +120,17 @@ extern bool tci_connected(void);
 extern unsigned tci_connection_generation(void);
 
 // UI-update hooks: tci_io.cxx is protocol-only (no fldigi/FLTK dependency
-// beyond these four extern points), called from the receiver thread right
+// beyond these three extern points), called from the receiver thread right
 // after the corresponding tci_vals field is updated under tci_vals_mutex.
 // Implemented in tcicat.cxx, which marshals to the FLTK main thread via
 // Fl::awake() (matching src/rigcontrol/xmlrpc_rig.cxx's existing pattern
 // for the same purpose) since the TCI receiver thread has no registered
 // qrunner thread-id for REQ()-style dispatch.
+//
+// There is deliberately no tci_on_ptt_update: inbound radio PTT must not reach
+// fldigi's TX state (see the TRX note in handle_command()).
 extern void tci_on_freq_update();
 extern void tci_on_mode_update();
-extern void tci_on_ptt_update();
 extern void tci_on_smeter_update();
 
 #endif

@@ -66,6 +66,53 @@ static ringbuffer<float> tx_audio_rb(65536);
 
 static_assert(sizeof(TciAudioHeader) == 64, "TCI audio header must be 64 bytes");
 
+// Discarding stale TX audio without either thread reaching into the other's
+// ring index.
+//
+// tx_audio_rb is single-writer (trx_thread) / single-reader (the receiver
+// thread), and ringbuffer<T> permits nothing else: only the reader may move
+// ridx, only the writer may move widx, and reset() writes both with no
+// barrier. So the writer cannot drop the residue itself -- it can only say
+// which samples are stale and let the reader skip them.
+//
+// A flag would not do. "Discard what's queued" set at the end of one over can
+// be observed by the reader after the next over has already been written, and
+// would then eat the start of it. A MARK does: tx_discard_mark is a point in
+// the write stream, so the reader skips only samples written before it and
+// anything written after is always kept, regardless of when the reader
+// happens to run. That makes the handshake order-independent, which matters
+// precisely because the stall case is one where the reader is not running.
+//
+// Counters are in samples and monotonic. At 48 kHz a size_t wraps in ~12
+// million years.
+static std::atomic<size_t> tx_written(0);      // writer-owned, published
+static std::atomic<size_t> tx_discard_mark(0); // writer-owned, published
+static size_t tx_read = 0;                     // reader-owned, private
+
+// Reader side. Skip anything the writer marked stale, never past the mark.
+static void tx_apply_discard(void)
+{
+	size_t mark = tx_discard_mark.load();
+	if (tx_read >= mark)
+		return;
+
+	size_t skip = mark - tx_read;
+	size_t avail = tx_audio_rb.read_space();
+	if (skip > avail)
+		skip = avail;
+	if (skip) {
+		tx_audio_rb.read_advance(skip);
+		tx_read += skip;
+		LOG_DEBUG("dropped %zu stale TX samples", skip);
+	}
+}
+
+// Writer side. Mark everything queued so far as stale.
+static void tx_request_discard(void)
+{
+	tx_discard_mark.store(tx_written.load());
+}
+
 size_t tci_tx_audio_write(const float *buf, size_t count)
 {
 	// Real-time back-pressure so the modem's tx_process() loop is paced to
@@ -75,10 +122,24 @@ size_t tci_tx_audio_write(const float *buf, size_t count)
 	// is wrong. Keep only a small real-time lead queued (low latency, but
 	// enough headroom over one ~21 ms TX_CHRONO block to avoid underruns).
 	// Bounded wait (~2 s) so a stalled/disconnected server can't wedge TX.
+	//
+	// The connection check matters as much as the bound: only the receiver
+	// thread drains this ring, and only while TX_CHRONO frames are arriving.
+	// If the socket drops mid-over nothing will ever drain it, and without
+	// this every remaining Write() of the transmission burns the full 2 s --
+	// modem::tx_process() calls ModulateXmtr() many times per invocation and
+	// trx only re-checks state between invocations, so RX/Abort stop
+	// responding for minutes.
 	const size_t lead = TCI_AUDIO_SAMPLE_RATE / 10; // ~100 ms queued
-	for (int i = 0; i < 400 && tx_audio_rb.read_space() > lead; i++)
+	for (int i = 0; i < 400 && tx_audio_rb.read_space() > lead; i++) {
+		if (!tci_connected())
+			break;
 		MilliSleep(5);
-	return tx_audio_rb.write(buf, count);
+	}
+
+	size_t n = tx_audio_rb.write(buf, count);
+	tx_written.fetch_add(n);
+	return n;
 }
 
 // AetherSDR's TX_CHRONO advertises hdr.channels=2, hdr.length=2048 (i.e.
@@ -121,9 +182,14 @@ static void handle_tx_chrono(const TciAudioHeader& chrono)
 		return;
 	}
 
+	// Drop anything the writer marked stale before serving this block, so a
+	// previous over's undrained tail is never radiated ahead of this one.
+	tx_apply_discard();
+
 	static std::vector<float> mono;
 	mono.resize(frames);
 	size_t got = tx_audio_rb.read(mono.data(), frames);
+	tx_read += got;
 	if (got < frames) {
 		std::fill(mono.begin() + got, mono.end(), 0.0f); // underrun -> pad silence
 		if (++underruns <= 5 || underruns % 200 == 0)
@@ -504,6 +570,9 @@ void tci_open(std::string address, std::string port)
 	// though it were live audio.
 	rx_audio_rb.reset();
 	tx_audio_rb.reset();
+	tx_written.store(0);
+	tx_discard_mark.store(0);
+	tx_read = 0;
 
 	{
 		guard_lock S(&send_mutex);
@@ -601,25 +670,13 @@ bool tci_tx_audio_drain(void)
 
 	size_t left = tx_audio_rb.read_space();
 	if (left) {
-		// Deliberately NOT tx_audio_rb.reset() here, though the residue is
-		// exactly what we would like to drop.
-		//
-		// This function runs on trx_thread, which is the ring's WRITER.
-		// reset() is `ridx = widx = 0` with no barrier -- it writes ridx, the
-		// READER's index, which only the receiver thread may touch
-		// (ringbuffer.h: "safe only for a single-thread reader and a
-		// single-thread writer"). Calling it here raced handle_tx_chrono()'s
-		// read_advance() and corrupted the ring permanently: widx=0 against a
-		// non-zero ridx makes read_space() report ~2x the ring size and
-		// write_space() underflow, after which tci_tx_audio_write() sees
-		// read_space() > lead forever and stalls its full 2 s on every block
-		// for the rest of the session. That is far worse than the residue it
-		// was trying to avoid, and it does not self-heal.
-		//
-		// The residue is dropped in tci_open() instead, which runs before
-		// pthread_create() and is therefore the one place where no reader
-		// exists and reset() is legal.
-		LOG_ERROR("TX drain incomplete: %zu samples still queued (server not pulling)", left);
+		// Mark the residue stale rather than reset()ing the ring: this runs
+		// on trx_thread, the WRITER, and only the receiver thread may move
+		// ridx. The reader drops it on its next TX_CHRONO, and the mark
+		// guarantees the next over's audio -- written after it -- survives
+		// even if the reader does not run again until then.
+		tx_request_discard();
+		LOG_ERROR("TX drain incomplete: %zu samples still queued (server not pulling), marked stale", left);
 		return false;
 	}
 	return true;

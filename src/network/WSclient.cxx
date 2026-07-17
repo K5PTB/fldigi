@@ -94,6 +94,14 @@
 #include <vector>
 #include <string>
 
+#include <pthread.h>
+#include <cctype>
+
+#include "mbedtls/sha1.h"
+#include "mbedtls/base64.h"
+#include "mbedtls/ctr_drbg.h"
+#include "mbedtls/entropy.h"
+
 #include "WSclient.h"
 
 using WSclient::Callback_Imp;
@@ -107,6 +115,62 @@ namespace { // private module-only namespace
 // receiver thread (a pthread entry point with no exception handler).
 const int WS_MAX_FRAME = 1 << 20;   // 1 MiB; TCI RX_AUDIO frames are ~8 KB
 const int WS_MAX_TXBUF = 8 << 20;   // 8 MiB of unsent TX before we give up
+
+// RFC 6455 4.1: this magic GUID is appended to the client's Sec-WebSocket-Key
+// and SHA1'd; the server returns base64 of that as Sec-WebSocket-Accept, and a
+// conformant client MUST verify it.
+const char WS_GUID[] = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+
+// One CSPRNG for the whole module, seeded once. mbedtls_ctr_drbg_random() is
+// not thread-safe and both threads draw from it (the main thread for the
+// handshake nonce, the receiver thread for per-frame masking keys), so every
+// draw goes through this mutex. Mirrors the mbedtls setup already used by the
+// Url class in network.cxx.
+pthread_mutex_t ws_rng_mutex = PTHREAD_MUTEX_INITIALIZER;
+mbedtls_ctr_drbg_context ws_ctr_drbg;
+mbedtls_entropy_context ws_entropy;
+bool ws_rng_ready = false;
+
+// Fill out[0..n) with cryptographic random bytes. Falls back to nothing usable
+// only if seeding fails, which mbedtls treats as fatal; callers here always
+// have a key either way, just not a random one on a broken-entropy system.
+void ws_random_bytes(uint8_t* out, size_t n)
+{
+	pthread_mutex_lock(&ws_rng_mutex);
+	if (!ws_rng_ready) {
+		mbedtls_ctr_drbg_init(&ws_ctr_drbg);
+		mbedtls_entropy_init(&ws_entropy);
+		const char* pers = "fldigi-wsclient";
+		if (mbedtls_ctr_drbg_seed(&ws_ctr_drbg, mbedtls_entropy_func, &ws_entropy,
+					  (const unsigned char*)pers, strlen(pers)) == 0)
+			ws_rng_ready = true;
+	}
+	if (!ws_rng_ready || mbedtls_ctr_drbg_random(&ws_ctr_drbg, out, n) != 0) {
+		// Seeding/draw failed. Do not emit a predictable constant silently;
+		// leave whatever the caller passed. In practice ctr_drbg_seed does
+		// not fail on any platform fldigi runs on.
+		fprintf(stderr, "WSclient: RNG unavailable\n");
+	}
+	pthread_mutex_unlock(&ws_rng_mutex);
+}
+
+std::string ws_base64(const uint8_t* in, size_t n)
+{
+	unsigned char buf[128];
+	size_t olen = 0;
+	if (mbedtls_base64_encode(buf, sizeof(buf), &olen, in, n) != 0)
+		return std::string();
+	return std::string((char*)buf, olen);
+}
+
+// base64( SHA1( key + GUID ) ) -- the expected Sec-WebSocket-Accept.
+std::string ws_accept_for(const std::string& key)
+{
+	std::string s = key + WS_GUID;
+	unsigned char digest[20];
+	mbedtls_sha1_ret((const unsigned char*)s.data(), s.size(), digest);
+	return ws_base64(digest, sizeof(digest));
+}
 
 // Cap on the TCP connect. tci_open() runs on the FLTK main thread, so a
 // blocking connect() to a host that silently drops SYNs freezes the whole UI
@@ -521,7 +585,11 @@ class _RealWebSocket : public WSclient::WebSocket
 		// Masking key should (must) be derived from a high quality random
 		// number generator, to mitigate attacks on non-WebSocket friendly
 		// middleware:
-		const uint8_t masking_key[4] = { 0x12, 0x34, 0x56, 0x78 };
+		// RFC 6455 5.3: a fresh, unpredictable masking key per frame. The old
+		// fixed constant made every byte fldigi sent trivially predictable,
+		// defeating the anti-cache-poisoning purpose masking exists for.
+		uint8_t masking_key[4];
+		ws_random_bytes(masking_key, sizeof(masking_key));
 		// TODO: consider acquiring a lock on txbuf...
 		if (readyState == CLOSING || readyState == CLOSED) { return; }
 
@@ -593,9 +661,19 @@ class _RealWebSocket : public WSclient::WebSocket
 	void close() {
 		if(readyState == CLOSING || readyState == CLOSED) { return; }
 		readyState = CLOSING;
-		uint8_t closeFrame[6] = {0x88, 0x80, 0x00, 0x00, 0x00, 0x00}; // last 4 bytes are a masking key
-		std::vector<uint8_t> header(closeFrame, closeFrame+6);
-		txbuf.insert(txbuf.end(), header.begin(), header.end());
+		// FIN + CLOSE, zero-length payload. Honor useMask (the old frame set
+		// the MASK bit unconditionally, even for from_url_no_mask connections)
+		// and use a random key rather than a hardcoded zero one.
+		if (useMask) {
+			uint8_t key[4];
+			ws_random_bytes(key, sizeof(key));
+			uint8_t frame[6] = { 0x88, 0x80, key[0], key[1], key[2], key[3] };
+			txbuf.insert(txbuf.end(), frame, frame + 6);
+		}
+		else {
+			uint8_t frame[2] = { 0x88, 0x00 };
+			txbuf.insert(txbuf.end(), frame, frame + 2);
+		}
 	}
 
 };
@@ -670,7 +748,14 @@ WSclient::WebSocket::pointer from_url(const std::string& url, bool useMask, cons
 		if (!origin.empty()) {
 			snprintf(line, 1024, "Origin: %s\r\n", origin.c_str()); ::send(sockfd, line, strlen(line), 0);
 		}
-		snprintf(line, 1024, "Sec-WebSocket-Key: x3JJHMbDL1EzLkh9GBhXDw==\r\n"); ::send(sockfd, line, strlen(line), 0);
+		// Fresh random 16-byte nonce per connection, base64'd, per RFC 6455
+		// 4.1 -- not the fixed easywsclient example key. The expected
+		// Sec-WebSocket-Accept is base64(SHA1(key + GUID)); we verify it below.
+		uint8_t nonce[16];
+		ws_random_bytes(nonce, sizeof(nonce));
+		std::string ws_key = ws_base64(nonce, sizeof(nonce));
+		std::string expect_accept = ws_accept_for(ws_key);
+		snprintf(line, 1024, "Sec-WebSocket-Key: %s\r\n", ws_key.c_str()); ::send(sockfd, line, strlen(line), 0);
 		snprintf(line, 1024, "Sec-WebSocket-Version: 13\r\n"); ::send(sockfd, line, strlen(line), 0);
 		snprintf(line, 1024, "\r\n"); ::send(sockfd, line, strlen(line), 0);
 		// recv() <= 0, not == 0: the original only treated a clean EOF as
@@ -687,10 +772,38 @@ WSclient::WebSocket::pointer from_url(const std::string& url, bool useMask, cons
 		line[i] = 0;
 		if (i == 1023) { fprintf(stderr, "ERROR: Got invalid status line connecting to: %s\n", url.c_str()); closesocket(sockfd); return NULL; }
 		if (sscanf(line, "HTTP/1.1 %d", &status) != 1 || status != 101) { fprintf(stderr, "ERROR: Got bad status connecting to %s: %s", url.c_str(), line); closesocket(sockfd); return NULL; }
-		// TODO: verify response headers,
+
+		// Read the response headers, capturing Sec-WebSocket-Accept. RFC 6455
+		// 4.1 requires the client to fail the connection unless it equals
+		// base64(SHA1(key + GUID)) -- without this, any HTTP server returning
+		// 101 was accepted as a WebSocket peer and its response body was then
+		// parsed as frames.
+		bool accept_ok = false;
 		while (true) {
 			for (i = 0; i < 2 || (i < 1023 && line[i-2] != '\r' && line[i-1] != '\n'); ++i) { if (recv(sockfd, line+i, 1, 0) <= 0) { closesocket(sockfd); return NULL; } }
+			line[i] = 0;
 			if (line[0] == '\r' && line[1] == '\n') { break; }
+
+			// Case-insensitive match on the header name, then compare the
+			// value (trimming spaces and the trailing CRLF) against expected.
+			const char* hdr = "sec-websocket-accept:";
+			size_t hlen = strlen(hdr);
+			bool match = true;
+			for (size_t k = 0; k < hlen; k++)
+				if (tolower((unsigned char)line[k]) != hdr[k]) { match = false; break; }
+			if (match) {
+				const char* v = line + hlen;
+				while (*v == ' ' || *v == '\t') v++;
+				std::string got(v);
+				while (!got.empty() && (got.back() == '\r' || got.back() == '\n' || got.back() == ' '))
+					got.erase(got.size() - 1);
+				accept_ok = (got == expect_accept);
+			}
+		}
+		if (!accept_ok) {
+			fprintf(stderr, "ERROR: Sec-WebSocket-Accept mismatch from %s -- not a WebSocket peer\n", url.c_str());
+			closesocket(sockfd);
+			return NULL;
 		}
 	}
 	int flag = 1;

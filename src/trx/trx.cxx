@@ -752,6 +752,40 @@ void show_reset_loop_alert()
 //	}
 }
 
+// Fall back to File I/O after a TCI audio failure.
+//
+// SND_IDX_NULL does not merely name a mode -- every switch case below is
+// responsible for constructing the cards its mode implies, and SND_IDX_NULL's
+// case constructs a SoundNull pair. A fallback that sets btnAudioIOis without
+// constructing them leaves RXscard == TXscard == 0, and every trx loop then
+// early-returns on `if (!RXscard)` forever: dead waterfall, no File I/O, no
+// modem, while the dialog reports "File I/O only". That state is routine for
+// TCI, because SoundTCI::Open() throws whenever the server simply isn't up
+// yet.
+//
+// sound_update() writes FLTK widget state, so it is REQ'd rather than called
+// directly: trx_reset_loop() runs on trx_thread.
+static void tci_audio_fallback(const char *why)
+{
+	LOG_ERROR("TCI audio unavailable: %s", why);
+
+	if (RXscard) delete RXscard;
+	if (TXscard) delete TXscard;
+	RXscard = new SoundNull;
+	TXscard = new SoundNull;
+
+	RXsc_is_open = TXsc_is_open = false;
+	current_RXsamplerate = current_TXsamplerate = 0;
+
+	reset_loop_msg = "TCI audio unavailable:\n";
+	reset_loop_msg.append(why);
+	reset_loop_msg.append("\n\nFalling back to File I/O.");
+
+	progdefaults.btnAudioIOis = SND_IDX_NULL;
+	REQ(sound_update, progdefaults.btnAudioIOis);
+	REQ(show_reset_loop_alert);
+}
+
 void trx_reset_loop()
 {
 	if (RXscard)  {
@@ -893,23 +927,15 @@ void trx_reset_loop()
 			TXscard->Open(O_WRONLY, current_TXsamplerate = 8000);
 			TXsc_is_open = true;
 		} catch (const SndException& e) {
-			// The cards must be destroyed and nulled, as the SND_IDX_PULSE
-			// case above does. Leaving them behind meant a half-initialized
-			// pair survived the switch to SND_IDX_NULL: RXscard still a live,
-			// already-Open'd SoundTCI feeding the modem from the dead TCI
-			// device while the dialog claimed File I/O, and TXscard possibly
-			// NULL, so every "if (TXscard)" silently skipped transmit.
-			LOG_ERROR("%s", e.what());
-			if (RXscard) delete RXscard;
-			if (TXscard) delete TXscard;
-			RXscard = 0;
-			TXscard = 0;
-			RXsc_is_open = TXsc_is_open = false;
-			reset_loop_msg = "TCI audio open failure:\n";
-			reset_loop_msg.append(e.what());
-			progdefaults.btnAudioIOis = SND_IDX_NULL;
-			sound_update(progdefaults.btnAudioIOis);
-			REQ(show_reset_loop_alert);
+			tci_audio_fallback(e.what());
+		} catch (...) {
+			// Restores the catch-all this case used to have. Narrowing it to
+			// SndException to get e.what() into the alert also dropped
+			// std::bad_alloc coverage -- `new SoundTCI` and the ctor's
+			// `new float[rx_blocksize]` can both throw it -- and an escaping
+			// bad_alloc unwinds through trx_loop to the pthread entry point,
+			// which has no handler: std::terminate.
+			tci_audio_fallback("unexpected exception opening TCI audio");
 		}
 		break;
 	default:
@@ -1012,16 +1038,9 @@ void trx_start(void)
 			RXscard = new SoundTCI;
 			TXscard = new SoundTCI;
 		} catch (const SndException& e) {
-			LOG_ERROR("%s", e.what());
-			if (RXscard) delete RXscard;
-			if (TXscard) delete TXscard;
-			RXscard = 0;
-			TXscard = 0;
-			reset_loop_msg = "TCI audio error:\n";
-			reset_loop_msg.append(e.what());
-			progdefaults.btnAudioIOis = SND_IDX_NULL; // file i/o
-			sound_update(progdefaults.btnAudioIOis);
-			REQ(show_reset_loop_alert);
+			tci_audio_fallback(e.what());
+		} catch (...) {
+			tci_audio_fallback("unexpected exception constructing TCI audio");
 		}
 		break;
 	default:

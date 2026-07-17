@@ -2493,16 +2493,34 @@ SoundTCI::SoundTCI()
 	rx_open = false;
 	rx_conn_gen = 0;
 	rx_blocksize = 1024;
+	rx_snd_buffer = 0;
+	rx_src_state = 0;
+	tx_src_state = 0;
+
+	// Anything already acquired must be released by hand before throwing:
+	// ~SoundTCI() never runs for an object whose ctor threw, and ~SoundBase()
+	// deliberately does not touch rx_src_state/tx_src_state/rx_snd_buffer
+	// because every derived class owns its own. Both throws below are
+	// reachable from a single cause -- a sample_converter value persisted out
+	// of range in fldigi.prefs -- and trx_start()/trx_reset_loop() each
+	// construct two SoundTCI per call and retry on every device reselection,
+	// so a leak here repeats rather than happening once.
+	int err;
+
 	rx_snd_buffer = new float[rx_blocksize];
 
-	int err;
 	rx_src_state = src_callback_new(src_read_cb, progdefaults.sample_converter, 1, &err, this);
-	if (!rx_src_state)
+	if (!rx_src_state) {
+		delete [] rx_snd_buffer;
 		throw SndException(src_strerror(err));
+	}
 
 	tx_src_state = src_new(progdefaults.sample_converter, 1, &err);
-	if (!tx_src_state)
+	if (!tx_src_state) {
+		src_delete(rx_src_state);
+		delete [] rx_snd_buffer;
 		throw SndException(src_strerror(err));
+	}
 
 	LOG(debug::INFO_LEVEL, debug::LOG_RIGCONTROL, "SoundTCI constructed");
 }

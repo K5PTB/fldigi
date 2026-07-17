@@ -491,6 +491,20 @@ void tci_open(std::string address, std::string port)
 
 	ws = sock;
 
+	// The only place either ring may legally be reset: the receiver thread --
+	// their reader (RX) and writer (TX) respectively -- does not exist yet,
+	// pthread_create() below is what publishes them to it, and trx_thread's
+	// access is bracketed by SoundTCI::Open() which cannot succeed while
+	// tci_connected() is false. reset() writes both indices with no barrier,
+	// so it is correct only under exactly that condition.
+	//
+	// Dropping anything stranded here is what keeps a previous connection's
+	// undrained TX tail from being radiated ahead of the first over on the
+	// new one, and a previous connection's RX from reaching the modem as
+	// though it were live audio.
+	rx_audio_rb.reset();
+	tx_audio_rb.reset();
+
 	{
 		guard_lock S(&send_mutex);
 		if (!send_list)
@@ -587,8 +601,25 @@ bool tci_tx_audio_drain(void)
 
 	size_t left = tx_audio_rb.read_space();
 	if (left) {
-		LOG_ERROR("TX drain incomplete: discarding %zu queued samples", left);
-		tx_audio_rb.reset();
+		// Deliberately NOT tx_audio_rb.reset() here, though the residue is
+		// exactly what we would like to drop.
+		//
+		// This function runs on trx_thread, which is the ring's WRITER.
+		// reset() is `ridx = widx = 0` with no barrier -- it writes ridx, the
+		// READER's index, which only the receiver thread may touch
+		// (ringbuffer.h: "safe only for a single-thread reader and a
+		// single-thread writer"). Calling it here raced handle_tx_chrono()'s
+		// read_advance() and corrupted the ring permanently: widx=0 against a
+		// non-zero ridx makes read_space() report ~2x the ring size and
+		// write_space() underflow, after which tci_tx_audio_write() sees
+		// read_space() > lead forever and stalls its full 2 s on every block
+		// for the rest of the session. That is far worse than the residue it
+		// was trying to avoid, and it does not self-heal.
+		//
+		// The residue is dropped in tci_open() instead, which runs before
+		// pthread_create() and is therefore the one place where no reader
+		// exists and reset() is legal.
+		LOG_ERROR("TX drain incomplete: %zu samples still queued (server not pulling)", left);
 		return false;
 	}
 	return true;

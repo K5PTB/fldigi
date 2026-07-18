@@ -43,6 +43,7 @@
 #include "ringbuffer.h"
 #include "threads.h"
 #include "misc.h"
+#include "strutil.h"
 #include "timeops.h"
 #include "debug.h"
 
@@ -111,6 +112,21 @@ static pthread_cond_t  tx_wake_cond  = PTHREAD_COND_INITIALIZER;
 static pthread_mutex_t rx_wake_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t  rx_wake_cond  = PTHREAD_COND_INITIALIZER;
 
+// True while the receiver thread is running and therefore able to drain the TX
+// ring. Set by tci_open() once the thread is created, cleared by tci_close()
+// and by the thread itself on exit (a server-side socket drop).
+//
+// The TX back-pressure/drain waits below use THIS instead of tci_connected():
+// tci_connected() takes run_mutex, and those waits run on trx_thread while
+// holding tx_wake_mutex. tci_close() holds run_mutex across pthread_join() of
+// the receiver, and the receiver takes tx_wake_mutex in handle_tx_chrono() --
+// so "check tci_connected() under tx_wake_mutex" closes a three-way deadlock
+// (trx: tx_wake_mutex->run_mutex; closer: run_mutex->join; receiver:
+// ->tx_wake_mutex). A lock-free flag breaks the cycle: the wait never reaches
+// for run_mutex, and a stopped receiver flips it false so the wait ends
+// promptly instead of burning the full 2 s bound.
+static std::atomic<bool> receiver_active(false);
+
 // Reader side. Skip anything the writer marked stale, never past the mark.
 static void tx_apply_discard(void)
 {
@@ -150,6 +166,26 @@ size_t tci_rx_audio_discard(void)
 	return n;
 }
 
+// Bounded (~2 s) wait until the TX ring has drained down to at most `target`
+// samples, or the receiver thread that drains it stops. Runs on trx_thread and
+// takes only tx_wake_mutex -- never run_mutex -- so it cannot deadlock against
+// tci_close(); see receiver_active. Re-checks receiver_active each pass rather
+// than blocking on it: only the receiver thread drains this ring, and only
+// while TX_CHRONO frames arrive, so once it stops nothing will ever drain the
+// ring and waiting longer is pointless. The 100 ms cadence bounds how long a
+// disconnect goes unnoticed.
+static void tx_wait_drained_to(size_t target)
+{
+	int waited = 0;
+	guard_lock L(&tx_wake_mutex);
+	while (tx_audio_rb.read_space() > target && waited < 2000) {
+		if (!receiver_active.load())
+			break;
+		pthread_cond_timedwait_rel(&tx_wake_cond, &tx_wake_mutex, 0.1);
+		waited += 100;
+	}
+}
+
 size_t tci_tx_audio_write(const float *buf, size_t count)
 {
 	// Real-time back-pressure so the modem's tx_process() loop is paced to
@@ -158,32 +194,8 @@ size_t tci_tx_audio_write(const float *buf, size_t count)
 	// speed during TX/Tune: the waterfall races ~10x and on-air TX timing
 	// is wrong. Keep only a small real-time lead queued (low latency, but
 	// enough headroom over one ~21 ms TX_CHRONO block to avoid underruns).
-	// Bounded wait (~2 s) so a stalled/disconnected server can't wedge TX.
-	//
-	// The connection check matters as much as the bound: only the receiver
-	// thread drains this ring, and only while TX_CHRONO frames are arriving.
-	// If the socket drops mid-over nothing will ever drain it, and without
-	// this every remaining Write() of the transmission burns the full 2 s --
-	// modem::tx_process() calls ModulateXmtr() many times per invocation and
-	// trx only re-checks state between invocations, so RX/Abort stop
-	// responding for minutes.
 	const size_t lead = TCI_AUDIO_SAMPLE_RATE / 10; // ~100 ms queued
-	const int    max_wait_ms = 2000;                // overall bound
-	int waited = 0;
-	{
-		guard_lock L(&tx_wake_mutex);
-		while (tx_audio_rb.read_space() > lead && waited < max_wait_ms) {
-			// Re-check connection each pass rather than block on it: only the
-			// receiver thread drains this ring, and only while TX_CHRONO
-			// frames arrive, so a dropped socket means nothing will ever
-			// drain it and waiting longer is pointless. The 100 ms cap bounds
-			// how long a disconnect goes unnoticed.
-			if (!tci_connected())
-				break;
-			pthread_cond_timedwait_rel(&tx_wake_cond, &tx_wake_mutex, 0.1);
-			waited += 100;
-		}
-	}
+	tx_wait_drained_to(lead);
 
 	size_t n = tx_audio_rb.write(buf, count);
 	tx_written.fetch_add(n);
@@ -209,6 +221,11 @@ static void handle_tx_chrono(const TciAudioHeader& chrono)
 	static unsigned sent = 0, underruns = 0, oversize = 0;
 
 	if (!ws) return;
+
+	// fldigi subscribes TX audio for a single TRX (audio_start:0). A pull for
+	// any other receiver must not be answered with RX0's TX audio, which would
+	// radiate this station's transmission on the wrong slice.
+	if (chrono.receiver != 0) return;
 
 	size_t channels_req = chrono.channels ? chrono.channels : 2;
 	size_t total_req = chrono.length ? chrono.length : 2048;
@@ -282,6 +299,19 @@ static void handle_tx_chrono(const TciAudioHeader& chrono)
 		LOG_INFO("TX_AUDIO frame #%u: frames=%zu rb_read_space_left=%zu", sent, frames, tx_audio_rb.read_space());
 }
 
+// Downmix `frames` of interleaved `channels`-channel samples to mono float,
+// applying `scale` (1.0f for float32 input, 1/32768 for int16). One body for
+// both sample types and both channel counts -- the RX decode carried four
+// near-identical copies of this before.
+template <typename T>
+static void tci_downmix(const T *in, float *out, size_t frames, size_t channels, float scale)
+{
+	if (channels == 2)
+		for (size_t i = 0; i < frames; i++) out[i] = 0.5f * (in[2*i] + in[2*i+1]) * scale;
+	else
+		for (size_t i = 0; i < frames; i++) out[i] = in[i] * scale;
+}
+
 static void handle_binary(const std::vector<uint8_t>& msg)
 {
 	static unsigned accepted = 0, rejected = 0;
@@ -311,7 +341,27 @@ static void handle_binary(const std::vector<uint8_t>& msg)
 	else if (hdr.format == 0) bytes_per_sample = sizeof(int16_t);
 	else return; // int24/int32 not sent for RX_AUDIO by any known TCI peer
 
+	// The stream is requested at TCI_AUDIO_SAMPLE_RATE (audio_samplerate:48000)
+	// and SoundTCI::Read() resamples on that fixed assumption, so a peer that
+	// honored the request differently -- or a peer defaulting to 96/192 kHz --
+	// would be decoded at the wrong pitch and speed with no error surfaced.
+	// Reject rather than silently mis-decode. (0 = rate unspecified; accept.)
+	if (hdr.sampleRate && hdr.sampleRate != TCI_AUDIO_SAMPLE_RATE) {
+		if (++rejected <= 5 || rejected % 200 == 0)
+			LOG_ERROR("RX_AUDIO sample rate %u != %d -- dropped",
+				hdr.sampleRate, TCI_AUDIO_SAMPLE_RATE);
+		return;
+	}
+
 	size_t channels = hdr.channels ? hdr.channels : 1;
+	// Only mono and stereo are meaningful for an audio stream; a larger count
+	// would be read as consecutive mono samples (interleaved -> garbage), so
+	// reject it the same way an unknown format is rejected above.
+	if (channels != 1 && channels != 2) {
+		if (++rejected <= 5 || rejected % 200 == 0)
+			LOG_ERROR("RX_AUDIO channels=%zu unsupported -- dropped", channels);
+		return;
+	}
 	const uint8_t *payload = msg.data() + sizeof(hdr);
 	size_t payload_bytes = msg.size() - sizeof(hdr);
 
@@ -335,20 +385,10 @@ static void handle_binary(const std::vector<uint8_t>& msg)
 	static std::vector<float> mono;
 	mono.resize(frames);
 
-	if (hdr.format == 3) {
-		const float *f = reinterpret_cast<const float*>(payload);
-		if (channels == 2)
-			for (size_t i = 0; i < frames; i++) mono[i] = 0.5f * (f[2*i] + f[2*i+1]);
-		else
-			for (size_t i = 0; i < frames; i++) mono[i] = f[i];
-	} else {
-		const int16_t *s = reinterpret_cast<const int16_t*>(payload);
-		const float scale = 1.0f / 32768.0f;
-		if (channels == 2)
-			for (size_t i = 0; i < frames; i++) mono[i] = 0.5f * (s[2*i] + s[2*i+1]) * scale;
-		else
-			for (size_t i = 0; i < frames; i++) mono[i] = s[i] * scale;
-	}
+	if (hdr.format == 3)
+		tci_downmix(reinterpret_cast<const float*>(payload), mono.data(), frames, channels, 1.0f);
+	else
+		tci_downmix(reinterpret_cast<const int16_t*>(payload), mono.data(), frames, channels, 1.0f / 32768.0f);
 
 	if (++accepted <= 5 || accepted % 200 == 0)
 		LOG_INFO("RX_AUDIO frame #%u: format=%u channels=%zu frames=%zu rb_write_space=%zu",
@@ -420,47 +460,36 @@ static bool arg_int(const std::vector<std::string>& a, size_t i, int& out)
 	return true;
 }
 
-static bool arg_float(const std::vector<std::string>& a, size_t i, float& out)
-{
-	if (i >= a.size() || a[i].empty()) return false;
-	char *end = 0;
-	errno = 0;
-	double v = strtod(a[i].c_str(), &end);
-	if (*end || errno) return false;
-	out = (float)v;
-	return true;
-}
-
-// "TRUE"/"FALSE". Tolerates the extra arguments this file's own tci_set_ptt()
-// sends -- "TRX:0,true,tci;" is echoed back by the server, so the flag is
-// args[1] and "tci" is args[2]; they are separate fields here rather than one
-// token that has to be re-split.
-static bool arg_bool(const std::vector<std::string>& a, size_t i, bool& out)
-{
-	if (i >= a.size()) return false;
-	if (a[i] == "TRUE")  { out = true;  return true; }
-	if (a[i] == "FALSE") { out = false; return true; }
-	return false;
-}
-
 // fldigi tracks a single TRX/receiver (RX0) via TCI; the rxnbr/slice index
 // carried by the protocol is parsed but ignored (accept updates regardless
 // of which receiver/slice they were addressed to), unlike flrig which
 // tracks slice_0/slice_1 independently.
 static void handle_command(const std::string& cmd, const std::vector<std::string>& a)
 {
-	int ival = 0, vfo = 0;
+	int ival = 0;
 
-	if (cmd == "RX_SMETER") {              // rx_smeter:0,0,-73;
-		if (!arg_int(a, 1, vfo) || vfo != 0 || !arg_int(a, 2, ival)) return;
+	// TCI addresses every report as cmd:<receiver>,<channel>,...  The receiver
+	// (a[0]) is the slice/radio index; the channel (a[1]) is VFO A/B within it.
+	// fldigi tracks RX0's VFO A only, so BOTH must be 0 -- a[0] filters out the
+	// second receiver on a dual-slice rig, a[1] filters out its VFO B. Checking
+	// only the channel (the earlier bug) let another slice's VFO A overwrite
+	// RX0's displayed frequency/mode/S-meter.
+	if (cmd == "RX_SMETER") {              // rx_smeter:<rx>,<chan>,-73;
+		int rx = 0, chan = 0;
+		if (!arg_int(a, 0, rx) || rx != 0) return;
+		if (!arg_int(a, 1, chan) || chan != 0) return;
+		if (!arg_int(a, 2, ival)) return;
 		{
 			guard_lock lock(&tci_vals_mutex);
 			tci_vals.A.smeter = ival;
 		}
 		tci_on_smeter_update();
 	}
-	else if (cmd == "VFO") {               // vfo:0,0,7032050;
-		if (!arg_int(a, 1, vfo) || vfo != 0 || !arg_int(a, 2, ival)) return;
+	else if (cmd == "VFO") {               // vfo:<rx>,<chan>,7032050;
+		int rx = 0, chan = 0;
+		if (!arg_int(a, 0, rx) || rx != 0) return;
+		if (!arg_int(a, 1, chan) || chan != 0) return;
+		if (!arg_int(a, 2, ival)) return;
 		// A negative frequency would be sign-extended to ~1.8e19 Hz by
 		// tci_do_freq_update()'s cast and handed to show_frequency().
 		if (ival < 0) return;
@@ -470,7 +499,9 @@ static void handle_command(const std::string& cmd, const std::vector<std::string
 		}
 		tci_on_freq_update();
 	}
-	else if (cmd == "MODULATION") {        // modulation:0,cw;
+	else if (cmd == "MODULATION") {        // modulation:<rx>,cw;
+		int rx = 0;
+		if (!arg_int(a, 0, rx) || rx != 0) return;   // RX0 only (no channel field)
 		if (a.size() < 2 || a[1].empty()) return;
 		{
 			guard_lock lock(&tci_vals_mutex);
@@ -492,16 +523,13 @@ static void handle_command(const std::string& cmd, const std::vector<std::string
 	// Everything else the server volunteers (DDS, VOLUME, DRIVE, SQL_*, TUNE,
 	// SPLIT, TX_POWER, TX_SWR, RX_FILTER_BAND, TUNE_DRIVE, and the second
 	// receiver's reports) has no consumer in fldigi and is ignored. fldigi
-	// tracks a single receiver (RX0); reports addressed to other slices are
-	// dropped by the vfo != 0 guards above.
+	// tracks a single receiver (RX0); reports addressed to other slices or to
+	// VFO B are dropped by the receiver/channel guards above.
 }
 
 void handle_message(const std::string & message)
 {
-	std::string rx = message;
-
-	for (size_t n = 0; n < rx.length(); n++)
-		rx[n] = toupper(rx[n] & 0xFF);
+	std::string rx = ucasestr(message);
 
 	LOG_DEBUG("R: %s", rx.c_str());
 
@@ -616,6 +644,15 @@ void *tci_loop(void *)
 	} catch (...) {
 		LOG_ERROR("%s", "TCI receiver thread exiting on unknown exception");
 	}
+
+	// The drainer is gone: release any trx_thread TX wait immediately rather
+	// than let it burn the full 2 s bound. Covers a server-side socket drop,
+	// where the loop above exits on its own before any tci_close().
+	receiver_active.store(false);
+	{
+		guard_lock L(&tx_wake_mutex);
+		pthread_cond_signal(&tx_wake_cond);
+	}
 	return NULL;
 }
 
@@ -659,23 +696,17 @@ void tci_open(std::string address, std::string port)
 
 	ws = sock;
 
-	// The only place either ring may legally be reset: the receiver thread --
-	// their reader (RX) and writer (TX) respectively -- does not exist yet,
-	// pthread_create() below is what publishes them to it, and trx_thread's
-	// access is bracketed by SoundTCI::Open() which cannot succeed while
-	// tci_connected() is false. reset() writes both indices with no barrier,
-	// so it is correct only under exactly that condition.
-	//
-	// Dropping anything stranded here is what keeps a previous connection's
-	// undrained TX tail from being radiated ahead of the first over on the
-	// new one, and a previous connection's RX from reaching the modem as
-	// though it were live audio.
-	rx_audio_rb.reset();
-	tx_audio_rb.reset();
-	tx_written.store(0);
-	tx_discard_mark.store(0);
-	tx_read = 0;
-
+	// Stale audio from a previous connection is NOT dropped here. This runs on
+	// the main thread, but a CAT reconnect can happen while the audio device
+	// stays open (see SoundTCI::Read()), so trx_thread may be concurrently
+	// reading rx_audio_rb / writing tx_audio_rb -- and ringbuffer<T> forbids
+	// anyone but the reader touching ridx or the writer touching widx, which
+	// reset() violates (it writes both, barrier-free). Each side drops its own
+	// residue from the thread that owns it instead: SoundTCI::Read() discards
+	// the stale RX (it is the RX reader) on the connection_generation bump
+	// below, and the writer-side discard mark (tci_tx_audio_drain at PTT-down)
+	// retires any stale TX. The sample counters are monotonic and intentionally
+	// never reset -- the discard mark is a point in that stream.
 	{
 		guard_lock S(&send_mutex);
 		if (!send_list)
@@ -697,10 +728,18 @@ void tci_open(std::string address, std::string port)
 		delete ws;
 		ws = (WebSocket::pointer)0;
 	}
+	else {
+		receiver_active.store(true);
+	}
 }
 
 void tci_close()
 {
+	// Stop the TX waits (tx_wait_drained_to) before taking run_mutex: they run
+	// on trx_thread and must not still be waiting on the receiver we are about
+	// to join. Lock-free, so setting it here (outside run_mutex) is safe.
+	receiver_active.store(false);
+
 	guard_lock R(&run_mutex);
 
 	if (ws) {
@@ -765,15 +804,7 @@ bool tci_connected(void)
 // transmission's preamble.
 bool tci_tx_audio_drain(void)
 {
-	int waited = 0;
-	{
-		guard_lock L(&tx_wake_mutex);
-		while (tx_audio_rb.read_space() && waited < 2000) {
-			if (!tci_connected()) break;
-			pthread_cond_timedwait_rel(&tx_wake_cond, &tx_wake_mutex, 0.1);
-			waited += 100;
-		}
-	}
+	tx_wait_drained_to(0);
 
 	size_t left = tx_audio_rb.read_space();
 	if (left) {

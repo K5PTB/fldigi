@@ -26,6 +26,7 @@
 #include <string>
 #include <cstdio>
 #include <cctype>
+#include <atomic>
 
 #include <FL/Fl.H>
 
@@ -85,7 +86,12 @@ static const double TCI_WATCHDOG_PERIOD_S = 2.0;  // probe cadence while healthy
 static const double TCI_RETRY_MIN_S       = 5.0;  // first retry delay
 static const double TCI_RETRY_MAX_S       = 60.0; // backoff ceiling
 
-static bool   tci_watchdog_armed = false;
+// Atomic: written on the FLTK main thread (arm/disarm) but read from
+// trx_thread via tci_watchdog_active() in SoundTCI::Open(). Plain-bool access
+// across threads is a data race; the value is only ever a flag, so a relaxed
+// atomic is enough to make the read well-defined. The other two watchdog
+// statics stay plain -- they are touched only on the main thread.
+static std::atomic<bool> tci_watchdog_armed(false);
 static double tci_retry_delay = TCI_RETRY_MIN_S;
 
 // False until tci_init() has completed once this run. Distinguishes the

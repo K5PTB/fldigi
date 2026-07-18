@@ -590,10 +590,7 @@ void sound_update(unsigned idx)
 #endif
 
 		case SND_IDX_NULL:
-			scDevice[0] = scDevice[1] = "";
-			break;
-
-		case SND_IDX_TCI:
+		case SND_IDX_TCI:      // neither has a device string
 			scDevice[0] = scDevice[1] = "";
 			break;
 	};

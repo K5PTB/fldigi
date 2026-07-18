@@ -69,6 +69,7 @@
 #include "timeops.h"
 #include "ringbuffer.h"
 #include "tci_io.h"
+#include "tcicat.h"   // tci_watchdog_active() -- throw-vs-open-pending in SoundTCI::Open()
 #include "debug.h"
 #include "qrunner.h"
 #include "icons.h"

@@ -811,6 +811,17 @@ LOG_INFO("Closing rig interface threads");
 	listbox_baudrate->hide();
 #endif
 
+	// connected_to_flrig is a live flag owned by the flrig poll thread; it
+	// stays set after the user switches CAT to another backend (unchecking
+	// flrig clears the config flag, not the connection). Left as-is it wins
+	// the priority chain below, so a user migrating from flrig to TCI (or
+	// rigCAT/hamlib) would find the new backend never starts -- the reconnect
+	// button looks dead and freq/mode/PTT keep routing to flrig. If flrig is
+	// no longer the selected backend, drop the stale connection so the user's
+	// actual choice takes effect. (Mirrors the set_cat_ptt() fix in trx.cxx.)
+	if (connected_to_flrig && !fldigi_client_to_flrig)
+		reconnect_to_flrig();
+
 	if (connected_to_flrig) {
 		LOG_INFO("%s", "using flrig xcvr control");
 		wf->setQSY(1);

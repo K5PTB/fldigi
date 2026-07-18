@@ -52,6 +52,121 @@ static const char *tci_modes[] = {
 	"AM", "SAM", "DSB", "LSB", "USB", "CW", "NFM", "DIGL", "DIGU", "WFM", "DRM"
 };
 
+// ---------------------------------------------------------------------------
+// Link watchdog -- notice a dead TCI connection and re-establish it.
+//
+// Without this, a server restart or network drop was permanent: the receiver
+// thread exits, receiver_active goes false, and nothing anywhere retries --
+// the Reconnect button ("Press only if you change the address/port") was the
+// only way back, and in the default full-duplex audio config SoundTCI::Read()
+// keeps pulling an empty ring forever, which is indistinguishable from a
+// quiet band. The reported field symptom is exactly this: "the audio feed
+// breaks and can't be recovered."
+//
+// The watchdog runs on the FLTK main thread via Fl::add_timeout -- the same
+// thread that owns every other tci_open()/tci_close() call, so no new
+// synchronization is introduced. The receiver thread cannot rebuild the
+// socket itself: swapping ws needs run_mutex, and taking run_mutex on the
+// receiver thread deadlocks against tci_close()'s join-under-lock.
+//
+// Recovery is complete once tci_open() succeeds: it bumps
+// connection_generation, which SoundTCI::Read() observes to re-subscribe RX
+// audio (audio_start), and the server's initial parameter burst repopulates
+// CAT state through handle_message() as on any fresh connect.
+//
+// Cost bound: a reconnect attempt to a host that silently drops SYNs blocks
+// this thread for up to WS_CONNECT_TIMEOUT_SEC (10 s, WSclient.cxx) -- the
+// same bound tci_init() already accepts at config-apply. The exponential
+// backoff below keeps that worst case to one bounded stall per retry,
+// decaying to one per TCI_RETRY_MAX_S; the common failure (server process
+// restarting, host alive) refuses instantly and costs nothing.
+// ---------------------------------------------------------------------------
+static const double TCI_WATCHDOG_PERIOD_S = 2.0;  // probe cadence while healthy
+static const double TCI_RETRY_MIN_S       = 5.0;  // first retry delay
+static const double TCI_RETRY_MAX_S       = 60.0; // backoff ceiling
+
+static bool   tci_watchdog_armed = false;
+static double tci_retry_delay = TCI_RETRY_MIN_S;
+
+// False until tci_init() has completed once this run. Distinguishes the
+// watchdog's two jobs: RE-connecting a link that was up (tci_open() alone --
+// the rig dialog and waterfall state already reflect TCI) versus completing a
+// COLD START where fldigi came up before the server did and full init (rig
+// dialog, waterfall QSY) is still pending.
+static bool tci_ever_connected = false;
+
+static void tci_watchdog_cb(void *)
+{
+	if (!tci_watchdog_armed) return;
+
+	if (tci_connected()) {
+		tci_retry_delay = TCI_RETRY_MIN_S;
+		Fl::repeat_timeout(TCI_WATCHDOG_PERIOD_S, tci_watchdog_cb);
+		return;
+	}
+
+	if (!tci_ever_connected) {
+		// Start-order durability: fldigi launched before the TCI server.
+		// Run the FULL init path, not a bare tci_open() -- the rig dialog is
+		// still in its no-CAT state and the waterfall isn't QSY-enabled.
+		// tci_init() arms a fresh watchdog timeout itself on success, so do
+		// not also repeat_timeout here (that would leave two timers pending).
+		if (tci_init()) {
+			LOG_INFO("%s", "TCI server appeared -- rig control initialized");
+			wf->USB(true);
+			wf->setQSY(1);
+			return;
+		}
+	}
+	else {
+		LOG_WARN("TCI link down -- reconnecting to %s:%s",
+			progdefaults.tci_ip_address.c_str(),
+			progdefaults.tci_ip_port.c_str());
+
+		// tci_open() retires the dead receiver thread itself (its "if (ws)
+		// tci_close()" preamble) before connecting anew.
+		tci_open(progdefaults.tci_ip_address, progdefaults.tci_ip_port);
+
+		if (tci_connected()) {
+			LOG_INFO("%s", "TCI link re-established");
+			tci_retry_delay = TCI_RETRY_MIN_S;
+			Fl::repeat_timeout(TCI_WATCHDOG_PERIOD_S, tci_watchdog_cb);
+			return;
+		}
+	}
+
+	Fl::repeat_timeout(tci_retry_delay, tci_watchdog_cb);
+	tci_retry_delay = tci_retry_delay * 2.0 > TCI_RETRY_MAX_S
+		? TCI_RETRY_MAX_S : tci_retry_delay * 2.0;
+}
+
+// Arm the watchdog in COLD-START mode: TCI is the user's configured backend
+// but the server hasn't answered yet this run. Called by configuration.cxx's
+// initInterface() fallback instead of silently un-configuring TCI, so "start
+// fldigi first, start the radio server whenever" just works -- the watchdog
+// completes the full init when the server appears. The immediate "TCI server
+// not responding" feedback still fires first, so a typo'd address/port is
+// still surfaced to a user standing at the config dialog.
+void tci_watchdog_arm_pending()
+{
+	tci_ever_connected = false;
+	tci_watchdog_armed = true;
+	tci_retry_delay = TCI_RETRY_MIN_S;
+	Fl::remove_timeout(tci_watchdog_cb); // never two pending
+	Fl::add_timeout(TCI_RETRY_MIN_S, tci_watchdog_cb);
+}
+
+// Is reconnection being handled? SoundTCI::Open() keys its
+// throw-vs-open-pending decision on this: with the watchdog armed, a
+// disconnected open may proceed (audio self-subscribes on the
+// connection_generation bump when the link lands, and the silence-filling
+// read callback keeps the interim safe and paced); without it, nothing
+// would ever recover the device, so failing loudly remains correct.
+bool tci_watchdog_active()
+{
+	return tci_watchdog_armed;
+}
+
 bool tci_init()
 {
 	std::string address = progdefaults.tci_ip_address;
@@ -77,11 +192,27 @@ bool tci_init()
 
 	init_Tci_RigDialog();
 
+	// Arm the watchdog. A failed initial connect does not reach here -- it
+	// returns false above and configuration.cxx decides whether to arm the
+	// cold-start retry (tci_watchdog_arm_pending) after surfacing the
+	// failure to the user.
+	tci_ever_connected = true;
+	tci_watchdog_armed = true;
+	tci_retry_delay = TCI_RETRY_MIN_S;
+	Fl::remove_timeout(tci_watchdog_cb); // never two pending
+	Fl::add_timeout(TCI_WATCHDOG_PERIOD_S, tci_watchdog_cb);
+
 	return true;
 }
 
 void tci_cat_close()
 {
+	// Disarm first: this is the user/config-driven teardown, the one case
+	// where a downed link must STAY down.
+	tci_watchdog_armed = false;
+	tci_ever_connected = false;
+	Fl::remove_timeout(tci_watchdog_cb);
+
 	tci_close();
 }
 

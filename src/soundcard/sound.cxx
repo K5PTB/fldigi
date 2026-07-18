@@ -69,6 +69,7 @@
 #include "timeops.h"
 #include "ringbuffer.h"
 #include "tci_io.h"
+#include "tcicat.h"   // tci_watchdog_active() -- throw-vs-open-pending in SoundTCI::Open()
 #include "debug.h"
 #include "qrunner.h"
 #include "icons.h"
@@ -2550,7 +2551,20 @@ int SoundTCI::Open(int mode, int freq)
 	// the floor (no send_list without a connection), Open() reported success,
 	// and the user got a working-looking sound device with permanent silence,
 	// no alert and no fallback.
-	if (!tci_connected())
+	//
+	// Refined for start-order durability: throw only when NOTHING will ever
+	// recover the device. With the reconnect watchdog armed (TCI is the
+	// configured rig control -- connected, retrying, or waiting for the
+	// server's first appearance), a disconnected open proceeds "pending":
+	// Read()'s starved callback feeds paced silence in the interim, and the
+	// connection_generation bump on connect makes Read() re-subscribe RX
+	// audio automatically. Throwing here in that case was worse than
+	// useless -- the fallback demoted btnAudioIOis to File I/O, so when the
+	// watchdog later brought the link up, CAT recovered but audio stayed
+	// dead. Without the watchdog (TCI audio selected but TCI CAT not
+	// configured), the original fail-fast throw stands: silence would be
+	// permanent, so surface it.
+	if (!tci_connected() && !tci_watchdog_active())
 		throw SndException("TCI is not connected -- check Rig Control/TCI");
 
 	req_sample_rate = freq;

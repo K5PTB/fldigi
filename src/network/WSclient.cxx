@@ -97,6 +97,7 @@
 #include <atomic>
 #include <pthread.h>
 #include <cctype>
+#include <ctime>   // clock_gettime for ws_now_ms()
 
 #include "mbedtls/sha1.h"
 #include "mbedtls/base64.h"
@@ -128,6 +129,48 @@ const size_t WS_MAX_MESSAGE = 8 << 20; // 8 MiB reassembled across fragments
 // and SHA1'd; the server returns base64 of that as Sec-WebSocket-Accept, and a
 // conformant client MUST verify it.
 const char WS_GUID[] = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+
+// Liveness deadlines. A peer that vanishes without FIN/RST (host power-loss,
+// Wi-Fi/VPN drop, NAT idle-eviction, laptop sleep) leaves this socket
+// readable-never and writable-forever: recv() keeps returning EWOULDBLOCK, so
+// the poll() loop never sees the 0/-1 that drives close_socket(), and
+// readyState reports OPEN indefinitely. Nothing above this layer can tell a
+// dead link from a quiet one -- for TCI that means RX audio simply stops and
+// never comes back. (SO_RCVTIMEO can't help: it is inert once the socket is
+// O_NONBLOCK, and there is no SO_KEEPALIVE here either.)
+//
+// So the client asserts liveness itself: after WS_PING_IDLE_MS without a
+// single inbound byte it sends a PING (RFC 6455 5.5.2 -- the peer MUST answer
+// with a PONG, and any TCI server is also talking constantly anyway), and
+// after WS_RX_DEAD_MS of total silence it declares the link dead and forces
+// CLOSED, which is the state the reconnect logic upstream keys on. The
+// deadline counts *bytes received*, not PONGs specifically, so a server that
+// is slow with PONGs but still streaming audio is never cut off.
+const unsigned long WS_PING_IDLE_MS = 5000;
+const unsigned long WS_RX_DEAD_MS   = 15000;
+
+// close() only queues the CLOSE frame; the CLOSED transition happens in a
+// later poll() once txbuf has drained. If the peer has stopped reading
+// (::send() returns EWOULDBLOCK forever), that drain never completes and the
+// object is stuck in CLOSING -- which tci_running() counts as alive, so the
+// receiver loop spins on a connection that can neither speak nor die. Bound
+// the close handshake: after this long in CLOSING, stop being polite and
+// close the socket.
+const unsigned long WS_CLOSE_LINGER_MS = 3000;
+
+// Monotonic milliseconds for the deadlines above. CLOCK_MONOTONIC, not
+// gettimeofday: a wall-clock step (NTP, DST, manual set) must not fire -- or
+// indefinitely defer -- a liveness deadline.
+unsigned long ws_now_ms()
+{
+#ifdef _WIN32
+	return (unsigned long)GetTickCount64();
+#else
+	struct timespec ts;
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	return (unsigned long)ts.tv_sec * 1000UL + (unsigned long)(ts.tv_nsec / 1000000L);
+#endif
+}
 
 // One CSPRNG for the whole module, seeded once. mbedtls_ctr_drbg_random() is
 // not thread-safe and both threads draw from it (the main thread for the
@@ -351,12 +394,21 @@ class _RealWebSocket : public WSclient::WebSocket
 	bool isRxBad;
 	int fragment_opcode; // opcode of the fragmented message _dispatchCombined() is currently reassembling
 
+	// Liveness bookkeeping (see WS_PING_IDLE_MS et al. above). All three are
+	// touched only from the thread that drives poll(), like rxbuf/txbuf.
+	unsigned long lastRxMs;       // last time recv() returned bytes
+	unsigned long lastPingMs;     // last PING we initiated
+	unsigned long closingSinceMs; // when poll() first saw CLOSING; 0 = not yet
+
 	_RealWebSocket(socket_t sockfd, bool useMask)
 			: sockfd(sockfd)
 			, readyState(OPEN)
 			, useMask(useMask)
 			, isRxBad(false)
-			, fragment_opcode(wsheader_type::TEXT_FRAME) {
+			, fragment_opcode(wsheader_type::TEXT_FRAME)
+			, lastRxMs(ws_now_ms())
+			, lastPingMs(0)
+			, closingSinceMs(0) {
 	}
 
 	// close()/poll() only queue a close frame and rely on a later poll() to
@@ -428,6 +480,7 @@ class _RealWebSocket : public WSclient::WebSocket
 			}
 			else {
 				rxbuf.resize(N + ret);
+				lastRxMs = ws_now_ms();
 			}
 		}
 		// The recv loop may have closed the connection; do not run the send
@@ -453,6 +506,31 @@ class _RealWebSocket : public WSclient::WebSocket
 			return;
 		if (!txbuf.size() && readyState == CLOSING)
 			close_socket();
+
+		// Liveness + close-linger deadlines (rationale at the constants'
+		// definitions). Placed after the flush checks so a connection that
+		// just transitioned to CLOSED above is left alone -- both guards
+		// test the state they act on.
+		unsigned long now = ws_now_ms();
+		if (readyState == OPEN) {
+			if (now - lastRxMs >= WS_PING_IDLE_MS
+			    && now - lastPingMs >= WS_PING_IDLE_MS) {
+				sendPing(); // queued now, flushed by the next poll()
+				lastPingMs = now;
+			}
+			if (now - lastRxMs >= WS_RX_DEAD_MS) {
+				fprintf(stderr,
+					"WSclient: no inbound traffic for %lu ms, closing dead link\n",
+					now - lastRxMs);
+				close_socket();
+			}
+		}
+		else if (readyState == CLOSING) {
+			if (!closingSinceMs)
+				closingSinceMs = now;
+			else if (now - closingSinceMs >= WS_CLOSE_LINGER_MS)
+				close_socket();
+		}
 	}
 
 
@@ -604,7 +682,19 @@ class _RealWebSocket : public WSclient::WebSocket
 				isRxBad = true;
 				return;
 			}
-			else { fprintf(stderr, "ERROR: Got unexpected WebSocket message.\n"); close(); }
+			else {
+				// Parity with every other failure branch above: close() alone
+				// only queues the CLOSE frame -- without isRxBad and the
+				// return, execution fell through to the erase below and the
+				// while(true) kept dispatching already-buffered frames to the
+				// callbacks after this code had decided the connection was
+				// bad. (A reserved CONTROL opcode, 0xB-0xF, that passes the
+				// size/fin check lands here too.)
+				fprintf(stderr, "ERROR: Got unexpected WebSocket message.\n");
+				close();
+				isRxBad = true;
+				return;
+			}
 
 			rxbuf.erase(rxbuf.begin(), rxbuf.begin() + ws.header_size+(size_t)ws.N);
 		}

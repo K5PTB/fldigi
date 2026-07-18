@@ -858,11 +858,21 @@ LOG_INFO("Closing rig interface threads");
 			wf->USB(true);
 			wf->setQSY(1);
 		} else {
-			LOG_INFO("%s", "defaulting to no xcvr control");
+			// Do NOT un-configure TCI (the old `chkUSETCIis = false` here):
+			// "server not up YET" is the normal cold-start case when fldigi
+			// launches before the radio server, and clearing the flag made
+			// that ordering permanent -- the user had to re-apply Rig
+			// Control by hand once the server was up. Fall back to no-CAT
+			// for now, keep the user's choice, and arm the watchdog in
+			// cold-start mode: it completes the full TCI init automatically
+			// when the server appears. tci_init() already surfaced the
+			// immediate "TCI server not responding" feedback, so a typo'd
+			// address/port is still visible at the config dialog.
+			LOG_INFO("%s", "no xcvr control until the TCI server appears (watchdog armed)");
 			noCAT_init();
 			wf->USB(true);
 			wf->setQSY(0);
-			chkUSETCIis = false;
+			tci_watchdog_arm_pending();
 		}
 	} else {
 		LOG_INFO("%s", "No xcvr control selected");

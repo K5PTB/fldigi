@@ -33,6 +33,12 @@
 extern bool tci_init();          // like hamlib_init() / rigCAT_init()
 extern void tci_cat_close();     // like hamlib_close() / rigCAT_close()
 
+// Arm the reconnect watchdog in cold-start mode after a failed tci_init():
+// TCI stays the configured backend and full init completes automatically
+// when the server appears (start-order durability). Called from
+// configuration.cxx's initInterface() fallback.
+extern void tci_watchdog_arm_pending();
+
 extern void tci_set_qsy(unsigned long long f);   // like hamlib_set_qsy
 extern void tci_setfreq(unsigned long long f);   // like hamlib_setfreq
 extern void tci_setmode(const char *md);         // like rigCAT_setmode

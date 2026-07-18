@@ -25,6 +25,7 @@
 
 #include <string>
 #include <cstdio>
+#include <cctype>
 
 #include <FL/Fl.H>
 
@@ -106,8 +107,15 @@ void tci_setfreq(unsigned long long f)
 void tci_setmode(const char *md)
 {
 	if (!tci_running() || !md) return;
+	// TCI modulation tokens are lowercase ("usb", "cw", "digu", ...), but the
+	// mode menu carries the uppercase tci_modes[] labels. Sending the label
+	// verbatim ("modulation:0,USB;") is ignored by a case-sensitive server, so
+	// the radio never follows fldigi's mode selection. Lowercase before sending.
+	std::string mode(md);
+	for (size_t i = 0; i < mode.size(); i++)
+		mode[i] = (char)tolower((unsigned char)mode[i]);
 	std::string cmd = "modulation:0,";
-	cmd.append(md).append(";");
+	cmd.append(mode).append(";");
 	tci_send(cmd);
 }
 
@@ -176,7 +184,17 @@ static void tci_do_mode_update(void *)
 {
 	if (!qso_opMODE) return;
 	guard_lock lock(&tci_vals_mutex);
-	qso_opMODE->value(tci_vals.A.mod.c_str());
+	// value(const char*) leaves the widget unchanged if the string matches no
+	// menu item, so a modulation name outside tci_modes[] would silently show a
+	// stale mode. Note it rather than fail quietly.
+	const std::string& m = tci_vals.A.mod;
+	for (size_t i = 0; i < sizeof(tci_modes)/sizeof(tci_modes[0]); i++) {
+		if (m == tci_modes[i]) {
+			qso_opMODE->value(m.c_str());
+			return;
+		}
+	}
+	LOG_VERBOSE("TCI modulation '%s' not in mode list -- display unchanged", m.c_str());
 }
 
 void tci_on_mode_update()

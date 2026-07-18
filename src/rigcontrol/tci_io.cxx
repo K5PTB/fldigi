@@ -374,6 +374,21 @@ static void handle_binary(const std::vector<uint8_t>& msg)
 		return;
 	}
 
+	// Mirror handle_tx_chrono()'s receiver filter. fldigi subscribes exactly
+	// one stream (audio_start:0), but this path ingested RX_AUDIO from ANY
+	// receiver -- so in a multi-client session, another client's slice being
+	// added to the audio bus (or TCI's runtime re-indexing shifting our
+	// subscription to a nonzero index after a lower-numbered slice is
+	// removed) would splice a different receiver's audio into the modem as
+	// if it were ours. Decode only what we subscribed to; log the rest so a
+	// re-index that silences RX is diagnosable rather than a mystery.
+	if (hdr.receiver != 0) {
+		if (++rejected <= 5 || rejected % 200 == 0)
+			LOG_WARN("RX_AUDIO for receiver %u ignored (subscribed to 0 only)",
+				hdr.receiver);
+		return;
+	}
+
 	size_t bytes_per_sample;
 	if (hdr.format == 3)      bytes_per_sample = sizeof(float);
 	else if (hdr.format == 0) bytes_per_sample = sizeof(int16_t);

@@ -94,6 +94,7 @@
 #include <vector>
 #include <string>
 
+#include <atomic>
 #include <pthread.h>
 #include <cctype>
 
@@ -115,6 +116,13 @@ namespace { // private module-only namespace
 // receiver thread (a pthread entry point with no exception handler).
 const int WS_MAX_FRAME = 1 << 20;   // 1 MiB; TCI RX_AUDIO frames are ~8 KB
 const int WS_MAX_TXBUF = 8 << 20;   // 8 MiB of unsent TX before we give up
+
+// WS_MAX_FRAME bounds a single frame, but a fragmented message accumulates
+// across continuation frames into receivedData; without a separate ceiling a
+// peer could stream unbounded sub-WS_MAX_FRAME fragments with fin=0 and defeat
+// the per-frame cap. TCI messages are never fragmented in practice, so this is
+// generous headroom.
+const size_t WS_MAX_MESSAGE = 8 << 20; // 8 MiB reassembled across fragments
 
 // RFC 6455 4.1: this magic GUID is appended to the client's Sec-WebSocket-Key
 // and SHA1'd; the server returns base64 of that as Sec-WebSocket-Accept, and a
@@ -188,8 +196,12 @@ bool connect_with_timeout(socket_t sockfd, const struct sockaddr* addr,
 	u_long nb = 1; ioctlsocket(sockfd, FIONBIO, &nb);
 	const int inprogress = WSAEWOULDBLOCK;
 #else
+	// If F_GETFL fails, don't force a bogus flag value onto the socket (which
+	// would corrupt its blocking mode on restore); fall back to a plain
+	// blocking connect() -- no bounded wait, but correct. connect() below then
+	// returns 0/-1 directly rather than EINPROGRESS.
 	int flags = fcntl(sockfd, F_GETFL, 0);
-	fcntl(sockfd, F_SETFL, flags | O_NONBLOCK);
+	bool nonblock = (flags != -1) && (fcntl(sockfd, F_SETFL, flags | O_NONBLOCK) != -1);
 	const int inprogress = EINPROGRESS;
 #endif
 
@@ -215,7 +227,8 @@ bool connect_with_timeout(socket_t sockfd, const struct sockaddr* addr,
 #ifdef _WIN32
 	nb = 0; ioctlsocket(sockfd, FIONBIO, &nb);
 #else
-	fcntl(sockfd, F_SETFL, flags);       // restore original (blocking) flags
+	if (nonblock)
+		fcntl(sockfd, F_SETFL, flags);   // restore original (blocking) flags
 #endif
 	return ok;
 }
@@ -253,6 +266,20 @@ socket_t hostname_connect(const std::string& hostname, int port) {
 	}
 	freeaddrinfo(result);
 	return sockfd;
+}
+
+// Send the whole buffer, looping over short writes and retrying on EINTR. The
+// framed data path (poll()) already loops; the blocking handshake writes did
+// not, so a partial write or a signal could truncate a request line.
+static bool ws_send_all(socket_t fd, const char* buf, size_t len) {
+	size_t off = 0;
+	while (off < len) {
+		ssize_t n = ::send(fd, buf + off, len - off, 0);
+		if (n > 0) { off += (size_t)n; continue; }
+		if (n < 0 && socketerrno == EINTR) continue;
+		return false;
+	}
+	return true;
 }
 
 
@@ -315,7 +342,11 @@ class _RealWebSocket : public WSclient::WebSocket
 	std::vector<uint8_t> receivedData;
 
 	socket_t sockfd;
-	readyStateValues readyState;
+	// Written by the receiver thread (poll()/dispatch/close_socket) and read
+	// from trx_thread and the main thread (getReadyState() via tci_running()/
+	// tci_connected()). Atomic so those cross-thread reads are well-defined
+	// without a lock -- the ws pointer's lifetime is what run_mutex guards.
+	std::atomic<readyStateValues> readyState;
 	bool useMask;
 	bool isRxBad;
 	int fragment_opcode; // opcode of the fragmented message _dispatchCombined() is currently reassembling
@@ -536,6 +567,16 @@ class _RealWebSocket : public WSclient::WebSocket
 				|| ws.opcode == wsheader_type::BINARY_FRAME
 				|| ws.opcode == wsheader_type::CONTINUATION
 			) {
+				// Bound the reassembled total, not just each frame: the
+				// per-frame WS_MAX_FRAME check above does nothing against a peer
+				// that streams many sub-1-MiB continuation frames with fin=0,
+				// which would grow receivedData without limit.
+				if (receivedData.size() + (size_t)ws.N > WS_MAX_MESSAGE) {
+					isRxBad = true;
+					fprintf(stderr, "ERROR: reassembled message exceeds %zu bytes. Closing.\n", WS_MAX_MESSAGE);
+					close();
+					return;
+				}
 				if (ws.mask) { for (size_t i = 0; i != ws.N; ++i) { rxbuf[i+ws.header_size] ^= ws.masking_key[i&0x3]; } }
 				if (ws.opcode != wsheader_type::CONTINUATION)
 					fragment_opcode = ws.opcode; // remember for the CONTINUATION frames that follow
@@ -555,7 +596,14 @@ class _RealWebSocket : public WSclient::WebSocket
 				sendData(wsheader_type::PONG, data.size(), data.begin(), data.end());
 			}
 			else if (ws.opcode == wsheader_type::PONG) { }
-			else if (ws.opcode == wsheader_type::CLOSE) { close(); }
+			else if (ws.opcode == wsheader_type::CLOSE) {
+				// RFC 6455 5.5.1: once a Close is received, echo the Close and
+				// process no further frames. isRxBad short-circuits later
+				// _dispatchCombined() calls; poll() completes the teardown.
+				close();
+				isRxBad = true;
+				return;
+			}
 			else { fprintf(stderr, "ERROR: Got unexpected WebSocket message.\n"); close(); }
 
 			rxbuf.erase(rxbuf.begin(), rxbuf.begin() + ws.header_size+(size_t)ws.N);
@@ -736,18 +784,7 @@ WSclient::WebSocket::pointer from_url(const std::string& url, bool useMask, cons
 		tv.tv_usec = 0;
 #endif
 		setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, (char*) &tv, sizeof(tv));
-		snprintf(line, 1024, "GET /%s HTTP/1.1\r\n", path); ::send(sockfd, line, strlen(line), 0);
-		if (port == 80) {
-			snprintf(line, 1024, "Host: %s\r\n", host); ::send(sockfd, line, strlen(line), 0);
-		}
-		else {
-			snprintf(line, 1024, "Host: %s:%d\r\n", host, port); ::send(sockfd, line, strlen(line), 0);
-		}
-		snprintf(line, 1024, "Upgrade: websocket\r\n"); ::send(sockfd, line, strlen(line), 0);
-		snprintf(line, 1024, "Connection: Upgrade\r\n"); ::send(sockfd, line, strlen(line), 0);
-		if (!origin.empty()) {
-			snprintf(line, 1024, "Origin: %s\r\n", origin.c_str()); ::send(sockfd, line, strlen(line), 0);
-		}
+
 		// Fresh random 16-byte nonce per connection, base64'd, per RFC 6455
 		// 4.1 -- not the fixed easywsclient example key. The expected
 		// Sec-WebSocket-Accept is base64(SHA1(key + GUID)); we verify it below.
@@ -755,9 +792,30 @@ WSclient::WebSocket::pointer from_url(const std::string& url, bool useMask, cons
 		ws_random_bytes(nonce, sizeof(nonce));
 		std::string ws_key = ws_base64(nonce, sizeof(nonce));
 		std::string expect_accept = ws_accept_for(ws_key);
-		snprintf(line, 1024, "Sec-WebSocket-Key: %s\r\n", ws_key.c_str()); ::send(sockfd, line, strlen(line), 0);
-		snprintf(line, 1024, "Sec-WebSocket-Version: 13\r\n"); ::send(sockfd, line, strlen(line), 0);
-		snprintf(line, 1024, "\r\n"); ::send(sockfd, line, strlen(line), 0);
+
+		// Build the whole request and send it with a short-write/EINTR-safe
+		// loop. The old code fired ~10 bare ::send() calls and discarded every
+		// return value, so a partial write or an EINTR truncated a header line
+		// and the server rejected the upgrade with no useful diagnostic.
+		std::string req;
+		req.reserve(320);
+		snprintf(line, 1024, "GET /%s HTTP/1.1\r\n", path); req += line;
+		if (port == 80) snprintf(line, 1024, "Host: %s\r\n", host);
+		else            snprintf(line, 1024, "Host: %s:%d\r\n", host, port);
+		req += line;
+		req += "Upgrade: websocket\r\n";
+		req += "Connection: Upgrade\r\n";
+		if (!origin.empty()) {
+			snprintf(line, 1024, "Origin: %s\r\n", origin.c_str()); req += line;
+		}
+		snprintf(line, 1024, "Sec-WebSocket-Key: %s\r\n", ws_key.c_str()); req += line;
+		req += "Sec-WebSocket-Version: 13\r\n";
+		req += "\r\n";
+		if (!ws_send_all(sockfd, req.data(), req.size())) {
+			fprintf(stderr, "ERROR: handshake request send failed to %s\n", url.c_str());
+			closesocket(sockfd);
+			return NULL;
+		}
 		// recv() <= 0, not == 0: the original only treated a clean EOF as
 		// failure, so an error or (now) a timeout returning -1 fell through
 		// and spun i up to 1023 over uninitialized line[] bytes, reporting a

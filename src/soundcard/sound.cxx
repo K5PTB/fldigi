@@ -2668,6 +2668,22 @@ void SoundTCI::Close(unsigned dir)
 // (bounded) if it's momentarily empty so the caller doesn't busy-spin --
 // mirrors SoundPulse::src_read_cb's role, but pulling from a ring buffer
 // fed by the TCI receiver thread instead of a blocking pa_simple_read().
+//
+// This callback must NEVER return 0 while the stream is nominally alive.
+// libsamplerate's callback API defines a 0 return as END OF INPUT: the
+// SRC_STATE latches it, the callback is never invoked again, and every later
+// src_callback_read() spins in the sinc flush path producing nothing --
+// permanently, even after the ring refills. Field signature (caught live on
+// macOS, thread sample): audio silent, trx_thread pinned at 100% CPU inside
+// sinc_mono_vari_process/src_callback_read with src_read_cb absent from
+// every sample, TCI link healthy. Only src_reset() clears the latch, and
+// steady-state Read() has no reason to call it.
+//
+// So a starved read feeds a block of SILENCE instead. Pacing is preserved --
+// the 100 ms blocking wait above already throttles each starved pass, so
+// this cannot free-run the modem; the decoder just hears quiet (which is
+// what a stalled stream IS) and recovers seamlessly the moment real frames
+// arrive.
 long SoundTCI::src_read_cb(void* arg, float** data)
 {
 	SoundTCI *p = reinterpret_cast<SoundTCI*>(arg);
@@ -2677,7 +2693,9 @@ long SoundTCI::src_read_cb(void* arg, float** data)
 	static unsigned starved = 0, fed = 0;
 	if (n == 0) {
 		if (++starved <= 5 || starved % 200 == 0)
-			LOG(debug::INFO_LEVEL, debug::LOG_RIGCONTROL, "SoundTCI::src_read_cb starved (#%u, gave up after 20 tries)", starved);
+			LOG(debug::INFO_LEVEL, debug::LOG_RIGCONTROL, "SoundTCI::src_read_cb starved (#%u) -- feeding silence", starved);
+		memset(p->rx_snd_buffer, 0, p->rx_blocksize * sizeof(float));
+		n = p->rx_blocksize;
 	} else {
 		if (++fed <= 5 || fed % 200 == 0)
 			LOG(debug::INFO_LEVEL, debug::LOG_RIGCONTROL, "SoundTCI::src_read_cb fed %zu samples (#%u)", n, fed);
@@ -2726,7 +2744,21 @@ size_t SoundTCI::Read(float *buf, size_t count)
 	long r;
 	while (n < count) {
 		r = src_callback_read(rx_src_state, ratio, count - n, buf + n);
-		if (r <= 0) break;
+		if (r <= 0) {
+			// Belt-and-braces against the end-of-input latch (see
+			// src_read_cb above) or any src error state: with the callback
+			// now silence-filling, a healthy resampler can only return > 0,
+			// so r <= 0 means the state is wedged -- un-latch it so the next
+			// pass recovers, and sleep so this loop can never become the
+			// unpaced 100%-CPU spin observed in the field (nothing else in
+			// this path blocks once src_callback_read fails instantly).
+			LOG(debug::WARN_LEVEL, debug::LOG_RIGCONTROL,
+				"SoundTCI::Read src_callback_read returned %ld -- resetting resampler", r);
+			if (rx_src_state)
+				src_reset(rx_src_state);
+			MilliSleep(10);
+			break;
+		}
 		n += (size_t)r;
 	}
 

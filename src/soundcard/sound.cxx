@@ -2611,8 +2611,17 @@ int SoundTCI::Open(int mode, int freq)
 // and the waterfall stayed ~1.4 s behind for the rest of the session.
 void SoundTCI::flush(unsigned dir)
 {
-	if (dir == (unsigned)O_WRONLY || dir == UINT_MAX)
+	if (dir == (unsigned)O_WRONLY || dir == UINT_MAX) {
 		tci_tx_audio_drain();
+
+		// Symmetry with the RX half below. Reset the TX resampler at the
+		// PTT-down boundary so its filter history and last src_ratio ramp from
+		// this over don't seed a transient into the start of the next one. In
+		// full duplex trx.cxx does not Close/Open the TX card between same-rate
+		// overs, so Open()'s reset does not cover this case.
+		if (tx_src_state)
+			src_reset(tx_src_state);
+	}
 
 	if (dir == (unsigned)O_RDONLY || dir == UINT_MAX) {
 		size_t dropped = tci_rx_audio_discard();
@@ -2665,17 +2674,35 @@ long SoundTCI::src_read_cb(void* arg, float** data)
 
 size_t SoundTCI::Read(float *buf, size_t count)
 {
+	// Playback of a recorded file and capture-to-file are SoundBase features
+	// every other backend honors (SoundPort::Read, SoundPulse::Read); mirror
+	// them so decoding a WAV and recording RX both work with TCI selected.
+	if (ifPlayback) {
+		read_file(ifPlayback, buf, count);
+		if (!ofCapture) {
+			if (!bHighSpeed)
+				MilliSleep((long)ceil((1e3 * count) / req_sample_rate));
+			return count;
+		}
+	}
+
 	if (!rx_open) {
 		MilliSleep(5);
 		return 0;
 	}
 
-	// The TCI CAT connection (Rig Control/TCI tab) can reconnect
-	// independently of this audio device ever being closed/reopened,
-	// which would otherwise leave a stale audio_start subscription on a
-	// socket nobody uses anymore. Cheap check, self-heals transparently.
+	// The TCI CAT connection (Rig Control/TCI tab) can reconnect independently
+	// of this audio device ever being closed/reopened. On that bump: drop the
+	// previous connection's buffered RX -- we are rx_audio_rb's reader, so this
+	// is the single-reader-safe place to do it, which is why tci_open() no
+	// longer resets the ring itself -- reset the resampler (its filter history
+	// and buffered-but-unemitted samples would otherwise pitch-smear the first
+	// blocks and mix in stale pre-disconnect audio), then re-subscribe.
 	unsigned gen = tci_connection_generation();
 	if (gen != rx_conn_gen) {
+		tci_rx_audio_discard();
+		if (rx_src_state)
+			src_reset(rx_src_state);
 		tci_audio_start(0);
 		rx_conn_gen = gen;
 	}
@@ -2688,11 +2715,19 @@ size_t SoundTCI::Read(float *buf, size_t count)
 		if (r <= 0) break;
 		n += (size_t)r;
 	}
+
+	if (ofCapture)
+		write_file(ofCapture, buf, NULL, count);
+
 	return n;
 }
 
 size_t SoundTCI::Write(double* buf, size_t count)
 {
+	// Record generated/transmit audio if requested, like every other backend.
+	if (ofGenerate)
+		write_file(ofGenerate, buf, NULL, count);
+
 	if (!active_modem) return count;
 
 	tx_fbuf.resize(count);
@@ -2704,6 +2739,9 @@ size_t SoundTCI::Write(double* buf, size_t count)
 
 size_t SoundTCI::Write_stereo(double* bufleft, double* bufright, size_t count)
 {
+	if (ofGenerate)
+		write_file(ofGenerate, bufleft, bufright, count);
+
 	if (!active_modem) return count ? count : 1;
 
 	tx_fbuf.resize(count);

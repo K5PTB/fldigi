@@ -52,6 +52,72 @@ static const char *tci_modes[] = {
 	"AM", "SAM", "DSB", "LSB", "USB", "CW", "NFM", "DIGL", "DIGU", "WFM", "DRM"
 };
 
+// ---------------------------------------------------------------------------
+// Link watchdog -- notice a dead TCI connection and re-establish it.
+//
+// Without this, a server restart or network drop was permanent: the receiver
+// thread exits, receiver_active goes false, and nothing anywhere retries --
+// the Reconnect button ("Press only if you change the address/port") was the
+// only way back, and in the default full-duplex audio config SoundTCI::Read()
+// keeps pulling an empty ring forever, which is indistinguishable from a
+// quiet band. The reported field symptom is exactly this: "the audio feed
+// breaks and can't be recovered."
+//
+// The watchdog runs on the FLTK main thread via Fl::add_timeout -- the same
+// thread that owns every other tci_open()/tci_close() call, so no new
+// synchronization is introduced. The receiver thread cannot rebuild the
+// socket itself: swapping ws needs run_mutex, and taking run_mutex on the
+// receiver thread deadlocks against tci_close()'s join-under-lock.
+//
+// Recovery is complete once tci_open() succeeds: it bumps
+// connection_generation, which SoundTCI::Read() observes to re-subscribe RX
+// audio (audio_start), and the server's initial parameter burst repopulates
+// CAT state through handle_message() as on any fresh connect.
+//
+// Cost bound: a reconnect attempt to a host that silently drops SYNs blocks
+// this thread for up to WS_CONNECT_TIMEOUT_SEC (10 s, WSclient.cxx) -- the
+// same bound tci_init() already accepts at config-apply. The exponential
+// backoff below keeps that worst case to one bounded stall per retry,
+// decaying to one per TCI_RETRY_MAX_S; the common failure (server process
+// restarting, host alive) refuses instantly and costs nothing.
+// ---------------------------------------------------------------------------
+static const double TCI_WATCHDOG_PERIOD_S = 2.0;  // probe cadence while healthy
+static const double TCI_RETRY_MIN_S       = 5.0;  // first retry delay
+static const double TCI_RETRY_MAX_S       = 60.0; // backoff ceiling
+
+static bool   tci_watchdog_armed = false;
+static double tci_retry_delay = TCI_RETRY_MIN_S;
+
+static void tci_watchdog_cb(void *)
+{
+	if (!tci_watchdog_armed) return;
+
+	if (tci_connected()) {
+		tci_retry_delay = TCI_RETRY_MIN_S;
+		Fl::repeat_timeout(TCI_WATCHDOG_PERIOD_S, tci_watchdog_cb);
+		return;
+	}
+
+	LOG_WARN("TCI link down -- reconnecting to %s:%s",
+		progdefaults.tci_ip_address.c_str(),
+		progdefaults.tci_ip_port.c_str());
+
+	// tci_open() retires the dead receiver thread itself (its "if (ws)
+	// tci_close()" preamble) before connecting anew.
+	tci_open(progdefaults.tci_ip_address, progdefaults.tci_ip_port);
+
+	if (tci_connected()) {
+		LOG_INFO("%s", "TCI link re-established");
+		tci_retry_delay = TCI_RETRY_MIN_S;
+		Fl::repeat_timeout(TCI_WATCHDOG_PERIOD_S, tci_watchdog_cb);
+	}
+	else {
+		Fl::repeat_timeout(tci_retry_delay, tci_watchdog_cb);
+		tci_retry_delay = tci_retry_delay * 2.0 > TCI_RETRY_MAX_S
+			? TCI_RETRY_MAX_S : tci_retry_delay * 2.0;
+	}
+}
+
 bool tci_init()
 {
 	std::string address = progdefaults.tci_ip_address;
@@ -77,11 +143,25 @@ bool tci_init()
 
 	init_Tci_RigDialog();
 
+	// Arm the watchdog only after a successful first connect. A failed
+	// initial connect keeps its existing semantics -- fail fast, fall back
+	// to no-CAT with the alert -- rather than silently retrying a
+	// configuration that has never once worked.
+	tci_watchdog_armed = true;
+	tci_retry_delay = TCI_RETRY_MIN_S;
+	Fl::remove_timeout(tci_watchdog_cb); // never two pending
+	Fl::add_timeout(TCI_WATCHDOG_PERIOD_S, tci_watchdog_cb);
+
 	return true;
 }
 
 void tci_cat_close()
 {
+	// Disarm first: this is the user/config-driven teardown, the one case
+	// where a downed link must STAY down.
+	tci_watchdog_armed = false;
+	Fl::remove_timeout(tci_watchdog_cb);
+
 	tci_close();
 }
 

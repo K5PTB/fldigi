@@ -715,7 +715,6 @@ void tci_open(std::string address, std::string port)
 	}
 
 	tci_run = true;
-	++connection_generation;
 
 	receiver = new pthread_t;
 	// pthread_create returns a positive errno on failure and 0 on success --
@@ -729,6 +728,16 @@ void tci_open(std::string address, std::string port)
 		ws = (WebSocket::pointer)0;
 	}
 	else {
+		// Bump the generation only once the connection is fully staffed. It
+		// used to be bumped above, before pthread_create -- so a create
+		// failure published a new generation with no receiver thread behind
+		// it, and SoundTCI::Read() dutifully latched rx_conn_gen and queued
+		// audio_start onto a send_list nothing would ever drain. The
+		// generation could then never change again (this failure path leaves
+		// ws null), so the audio device was latched into a dead subscription
+		// until the user reconfigured. Success-only ordering means Read()
+		// only ever re-subscribes to a connection that exists.
+		++connection_generation;
 		receiver_active.store(true);
 	}
 }

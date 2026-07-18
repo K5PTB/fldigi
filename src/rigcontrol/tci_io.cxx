@@ -166,6 +166,44 @@ size_t tci_rx_audio_discard(void)
 	return n;
 }
 
+// Cap the RX backlog so a transient consumer stall cannot become permanent
+// latency.
+//
+// handle_binary() deliberately drops the NEWEST samples when rx_audio_rb is
+// full (the writer may not touch the reader's index, so it can only decline
+// to write). But the consumer runs at exactly real time, so the queue depth
+// never shrinks on its own: once any stall -- a waterfall repaint, disk I/O,
+// a CPU spike -- fills the ring, every sample thereafter is decoded ~1.4 s
+// (the full ring) after it arrived, indefinitely. The only existing reset is
+// flush(O_RDONLY) on a TX->RX transition, which an RX-only monitoring
+// session never performs.
+//
+// So the READER bounds its own backlog: on each read, if more than
+// RX_BACKLOG_CAP samples are queued, skip forward to RX_BACKLOG_TRIM. Same
+// legality as tci_rx_audio_discard() above -- read_advance() from the
+// consumer's thread moves the reader's own index. The cap/trim gap is
+// hysteresis: trimming to just under the cap would re-trip on every frame
+// while near-full, turning one re-sync into a steady dribble of small drops.
+//
+// 0.5 s / 0.25 s at 48 kHz mono: normal operating depth is well under 0.2 s
+// (the modem paces ~100 ms pulls against ~21 ms frames), so the cap is not
+// reachable in healthy operation; a genuine stall costs one audible skip and
+// then RX is realigned to ~0.25 s behind live.
+static const size_t RX_BACKLOG_CAP  = 24000; // 0.5 s @ 48 kHz mono
+static const size_t RX_BACKLOG_TRIM = 12000; // post-trim depth: 0.25 s
+
+static void rx_trim_backlog(void)
+{
+	size_t backlog = rx_audio_rb.read_space();
+	if (backlog <= RX_BACKLOG_CAP)
+		return;
+
+	size_t drop = backlog - RX_BACKLOG_TRIM;
+	rx_audio_rb.read_advance(drop);
+	LOG_INFO("RX backlog %zu samples exceeded cap %zu: dropped %zu oldest to re-sync",
+		backlog, RX_BACKLOG_CAP, drop);
+}
+
 // Bounded (~2 s) wait until the TX ring has drained down to at most `target`
 // samples, or the receiver thread that drains it stops. Runs on trx_thread and
 // takes only tx_wake_mutex -- never run_mutex -- so it cannot deadlock against
@@ -839,6 +877,7 @@ void tci_audio_stop(int trx)
 
 size_t tci_rx_audio_read(float *buf, size_t count)
 {
+	rx_trim_backlog();
 	return rx_audio_rb.read(buf, count);
 }
 
@@ -849,6 +888,7 @@ size_t tci_rx_audio_read(float *buf, size_t count)
 // the check/wait window is never missed.
 size_t tci_rx_audio_read_wait(float *buf, size_t count, int timeout_ms)
 {
+	rx_trim_backlog();
 	size_t n = rx_audio_rb.read(buf, count);
 	if (n) return n;
 

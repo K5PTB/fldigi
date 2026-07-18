@@ -156,6 +156,17 @@ void tci_watchdog_arm_pending()
 	Fl::add_timeout(TCI_RETRY_MIN_S, tci_watchdog_cb);
 }
 
+// Is reconnection being handled? SoundTCI::Open() keys its
+// throw-vs-open-pending decision on this: with the watchdog armed, a
+// disconnected open may proceed (audio self-subscribes on the
+// connection_generation bump when the link lands, and the silence-filling
+// read callback keeps the interim safe and paced); without it, nothing
+// would ever recover the device, so failing loudly remains correct.
+bool tci_watchdog_active()
+{
+	return tci_watchdog_armed;
+}
+
 bool tci_init()
 {
 	std::string address = progdefaults.tci_ip_address;

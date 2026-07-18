@@ -39,6 +39,10 @@ extern void tci_cat_close();     // like hamlib_close() / rigCAT_close()
 // configuration.cxx's initInterface() fallback.
 extern void tci_watchdog_arm_pending();
 
+// True while the reconnect watchdog is armed (connected or retrying).
+// SoundTCI::Open() uses this to decide throw-now vs open-pending.
+extern bool tci_watchdog_active();
+
 extern void tci_set_qsy(unsigned long long f);   // like hamlib_set_qsy
 extern void tci_setfreq(unsigned long long f);   // like hamlib_setfreq
 extern void tci_setmode(const char *md);         // like rigCAT_setmode

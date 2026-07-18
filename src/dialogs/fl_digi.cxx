@@ -4705,6 +4705,7 @@ LOG_INFO("Disable TUNE");
 		Fl::flush();
 		push2talk->set(0);
 		set_flrig_ptt(0);
+		tci_set_ptt(0);
 		trx_receive();
 		MilliSleep(200);
 	}
@@ -4717,6 +4718,8 @@ LOG_INFO("Close hamlib");
 #endif
 LOG_INFO("Close rigCAT");
 	rigCAT_close();
+LOG_INFO("Close TCI");
+	tci_cat_close();
 
 LOG_INFO("Close ADIF i/o");
 	ADIF_RW_close();
@@ -9009,6 +9012,8 @@ void qsy(unsigned long long rfc, int fmid)
 	else if (progdefaults.chkUSEHAMLIBis)
 		REQ(hamlib_set_qsy, rfc);
 #endif
+	else if (progdefaults.chkUSETCIis)
+		REQ(tci_set_qsy, rfc);
 	else
 		qso_selectFreq(rfc, fmid);
 
@@ -10004,6 +10009,13 @@ void set_ip_to_default(int which_io)
 			txt_fllog_ip_port->value(DEFAULT_FLLOG_IP_PORT);
 			txt_fllog_ip_address->do_callback();
 			txt_fllog_ip_port->do_callback();
+			break;
+
+		case TCI_IO:
+			txt_tci_ip_address->value(DEFAULT_TCI_IP_ADDRESS);
+			txt_tci_ip_port->value(DEFAULT_TCI_IP_PORT);
+			txt_tci_ip_address->do_callback();
+			txt_tci_ip_port->do_callback();
 			break;
 	}
 }

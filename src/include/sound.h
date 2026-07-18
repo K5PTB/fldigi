@@ -32,6 +32,7 @@
 #include <string>
 #include <cstring>
 #include <climits>
+#include <vector>
 
 #  include <sndfile.h>
 
@@ -351,6 +352,42 @@ protected:
 
 #endif // USE_PULSEAUDIO
 
+
+// TCI (Transceiver Control Interface) audio backend, unconditionally
+// available (no external dependency beyond libsamplerate, which the
+// whole SoundBase family already requires). RX pulls decoded mono float
+// samples out of tci_io.cxx's ring buffer via libsamplerate's callback
+// API (rx_src_state), matching SoundPulse's ppm-correction pattern but
+// used here for the primary rate conversion, since the TCI stream's rate
+// (TCI_AUDIO_SAMPLE_RATE) generally does not match the modem's requested
+// rate. TX (Write/Write_stereo) resamples modem audio up to
+// TCI_AUDIO_SAMPLE_RATE (tx_src_state, block-based src_process) and pushes
+// it into tci_io.cxx's TX ring buffer; actual sending is paced entirely by
+// the server's TX_CHRONO frames, not by this class.
+class SoundTCI : public SoundBase
+{
+public:
+	SoundTCI();
+	virtual ~SoundTCI();
+	int		Open(int mode, int freq = 8000);
+	void	Close(unsigned dir = UINT_MAX);
+	void	Abort(unsigned dir = UINT_MAX) { Close(dir); }
+	size_t	Write(double *, size_t);
+	size_t	Write_stereo(double *, double *, size_t);
+	size_t	resample_write(float *buf, size_t count);
+	size_t	Read(float *, size_t);
+	void	flush(unsigned dir = UINT_MAX);
+	bool	must_close(int dir = 0) { return false; }
+
+private:
+	static long	src_read_cb(void* arg, float** data);
+	float	*rx_snd_buffer;
+	size_t	rx_blocksize;
+	std::vector<float> tx_fbuf;
+	std::vector<float> tx_outbuf;
+	bool	rx_open;
+	unsigned rx_conn_gen;
+};
 
 class SoundNull : public SoundBase
 {

@@ -28,7 +28,7 @@ git clone https://github.com/K5PTB/fldigi.git
 cd fldigi
 autoreconf -vfi        # needs gettext/autopoint — macOS also needs it on PATH; see BUILDING.md
 ./configure            # macOS needs an FLTK_CONFIG line — see BUILDING.md
-make -j4
+make -C src -j4        # builds just the app (skips the man-page docs)
 ./src/fldigi
 ```
 

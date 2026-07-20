@@ -7,6 +7,11 @@ Two dependencies are **bundled in the source tree** — mbedtls (`src/mbedtls/`,
 used by the WebSocket client) and the FFT — so you never install those
 separately. Hamlib is optional (only for hardware CAT; TCI does not need it).
 
+The build command below is `make -C src`, which builds **just the fldigi
+application**. It deliberately skips the man-page / HTML documentation build
+(that needs the `asciidoc` + `xsltproc` toolchain and is fragile on some
+systems); none of it is needed to run fldigi.
+
 ## FLTK version — please note
 
 fldigi builds against **FLTK 1.4** or **FLTK 1.3**:
@@ -36,13 +41,13 @@ sudo apt-get install -y \
 git clone https://github.com/K5PTB/fldigi.git
 cd fldigi
 
-# 3. Build
+# 3. Build (just the application; skips the man-page/doc build)
 autoreconf -vfi        # the git tree ships only configure.ac, no ./configure
 ./configure            # leave FLTK_CFLAGS / FLTK_LIBS unset
-make -j"$(nproc)"
+make -C src -j4        # -C src avoids the asciidoc/xsltproc man-page build
 
 # 4. Run
-./src/fldigi           # or: sudo make install
+./src/fldigi
 ```
 
 - **Verified** on Raspberry Pi 5 / Debian trixie (aarch64); the same steps apply
@@ -66,13 +71,13 @@ brew install fltk libsamplerate libsndfile portaudio \
 git clone https://github.com/K5PTB/fldigi.git
 cd fldigi
 
-# 3. Build
+# 3. Build (just the application; skips the man-page/doc build)
 export PATH="$(brew --prefix gettext)/bin:$PATH"     # autopoint, for autoreconf
 autoreconf -vfi
 ./configure \
     PKG_CONFIG_PATH="$(brew --prefix)/lib/pkgconfig:$(brew --prefix libsndfile)/lib/pkgconfig" \
     FLTK_CONFIG="$(brew --prefix)/bin/fltk-config"
-make -j"$(sysctl -n hw.ncpu)"
+make -C src -j4        # -C src avoids the asciidoc/xsltproc man-page build
 
 # 4. Run
 ./src/fldigi

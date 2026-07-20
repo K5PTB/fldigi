@@ -46,6 +46,15 @@ would otherwise need.
 Select it in **Rig Control → TCI** and **Soundcard → Devices → TCI**, then set
 the `ws://` address and port (default `50001`).
 
+## Reporting TCI issues — your help is appreciated
+
+TCI support here is new and under active testing. **The intent is to contribute
+it upstream to fldigi once it has been sufficiently tested.** If you find any
+issues associated with TCI, please
+[**open an issue**](https://github.com/K5PTB/fldigi/issues) on this repo —
+reports from real-world use across different radios and platforms are exactly
+what get this feature ready for upstream. Your help would be appreciated.
+
 ## About this fork
 
 Based on fldigi **4.2.11**. The only additions are the TCI feature and a small

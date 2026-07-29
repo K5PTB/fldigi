@@ -1,15 +1,7 @@
-  2026-07-13  dave-w1hkj  Version 4.2.12
-  2026-07-03  ja3mbc      flrig reconnect segfault
-  2026-06-20  dave-w1hkj  RsID lower freq limit
-  2026-06-15  dave-w1hkj  Read PTT, Pmeter
-  2026-06-11  dave-w1hkj  RX-Menu-Clear
-  2026-02-24  dave-w1hkj  Rigcat bug
-  2026-02-01  dave-w1hkj  Video Button
-  2026-02-01  dave-w1hkj  Reverse set with flrig
-  2026-01-28  dave-w1hkj  XMIT text color
-  2026-01-31  dave-w1hkj  dxcc query
-  2026-01-06  dave-w1hkj  wf click
-  2026-01-02  dave-w1hkj  CW debug
-  2025-12-24  dave-w1hkj  Wayland incompatibility
-  2026-06-14  dave-w1hkj  QTC Cabrillo
+  2026-07-28  dave-w1hkj  Version 4.2.13
+  2026-07-28  dave-w1hkj  flrig-i-o-segfault
+  2026-07-28  dave-w1hkj  Special debug file
+  2026-07-28  dave-w1hkj  Combo data string
+  2026-07-28  dave-w1hkj  KISS I/O buffer overflow
+  2026-07-28  dave-w1hkj  APPLE only code
 

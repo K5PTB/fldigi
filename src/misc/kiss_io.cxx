@@ -3061,13 +3061,14 @@ static void parse_kiss_frame(std::string frame_segment)
 					return;
 				}
 				data_count = kiss_one_frame.size();
-				memset(buffer, 0, buffer_size);
-				memcpy(buffer, kiss_one_frame.c_str(), data_count);
+				if (data_count > 0 && data_count < buffer_size) {
+					memset(buffer, 0, buffer_size);
+					memcpy(buffer, kiss_one_frame.c_str(), data_count);
 
-				data_count = encap_hdlc_frame(buffer, data_count);
+					data_count = encap_hdlc_frame(buffer, data_count);
 
-				WriteToRadioBuffered((const char *) buffer, (size_t) data_count);
-
+					WriteToRadioBuffered((const char *) buffer, (size_t) data_count);
+				}
 				buffer[0] = 0;
 				delete [] buffer;
 				buffer = 0;

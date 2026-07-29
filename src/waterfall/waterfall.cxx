@@ -2001,8 +2001,7 @@ void waterfall::USB(bool b) {
 	if (wfdisp->USB() == b)
 		return;
 	wfdisp->USB(b);
-	if (active_modem) active_modem->set_reverse(reverse);
-	REQ(&viewer_redraw);
+	viewer_redraw();
 }
 
 bool waterfall::USB() {

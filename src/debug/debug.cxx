@@ -360,3 +360,71 @@ void set_debug_mask(int mask)
 	mnu_debug_level->value(progStatus.debug_level);
 	debug::level = debug::level_e(progStatus.debug_level);
 }
+
+//======================================================================
+// print to file
+
+static char *now()
+{
+	static char exttime[13];
+
+	static struct tm *tim;
+	static struct timeval tv;
+
+	gettimeofday(&tv, NULL);
+	time_t tval = tv.tv_sec;
+
+	tim = gmtime(&tval);
+
+	snprintf(exttime, sizeof(exttime),
+		"%02d:%02d:%02d.%03d",
+		tim->tm_hour, tim->tm_min, tim->tm_sec, (int)(tv.tv_usec / 1000L) );
+
+	return exttime;
+}
+
+std::string f2s(double d)
+{
+	char s[20];
+	snprintf(s, sizeof(s), "%f", d);
+	return s;
+}
+
+std::string i2s(int d)
+{
+	char s[20];
+	snprintf(s, sizeof(s), "%d", d);
+	return s;
+}
+
+bool debug_p2f = false;
+static pthread_mutex_t p2f_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+void p2f ( std::string func, std::string comment )
+{
+	if (!debug_p2f) return;
+
+	guard_lock p2f_lock( &p2f_mutex );
+
+	std::string sz = now();
+	sz.append(": [");
+	sz.append( func ).append("] ");
+	sz.append( comment ).append("\n");
+
+	FILE *pfile = fopen( std::string(HomeDir).append("/p2f.txt").c_str(), "a" );
+	if (pfile) {
+		fprintf(pfile, "%s", sz.c_str());
+		fclose( pfile );
+	}
+}
+
+void reset_p2f()
+{
+	if (!debug_p2f) return;
+
+	FILE *pfile = fopen( std::string(HomeDir).append("/p2f.txt").c_str(), "w" );
+	if (pfile) {
+		fprintf(pfile, "Special fldigi debug file: %s\n", zdate());
+		fclose( pfile );
+	}
+}

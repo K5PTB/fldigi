@@ -4512,7 +4512,9 @@ void cb_btnClearMViewer(Fl_Widget *w, void *d)
 	active_modem->clear_viewer();
 }
 
+#ifdef __APPLE__
 static int handle_macos_command_shortcut(int event);
+#endif
 
 int default_handler(int event)
 {
@@ -8955,9 +8957,9 @@ void cb_exit_pwr_level(void*)
 	pwrlevel_grp->hide();
 }
 
+#ifdef __APPLE__
 static int handle_macos_command_shortcut(int event)
 {
-#ifdef __APPLE__
 	if (event != FL_KEYBOARD && event != FL_SHORTCUT)
 		return 0;
 	if (!Fl::event_command())
@@ -8986,10 +8988,10 @@ static int handle_macos_command_shortcut(int event)
 	case 'F':
 		cb_mnuDigiscope(0, 0);
 		return 1;
-	case 'h':
-	case 'H':
-		cb_mnuHWfallViewer(0, 0);
-		return 1;
+//	case 'h':
+//	case 'H':
+//		cb_mnuHWfallViewer(0, 0);
+//		return 1;
 	case 'l':
 	case 'L':
 		cb_mnuShowLogbook(0, 0);
@@ -9013,13 +9015,8 @@ static int handle_macos_command_shortcut(int event)
 	default:
 		return 0;
 	}
-#else
-	(void)event;
-	return 0;
-#endif
 }
 
-#ifdef __APPLE__
 static Fl_Event_Dispatch previous_macos_event_dispatch = 0;
 
 static int macos_command_event_dispatch(int event, Fl_Window *w)

@@ -32,6 +32,8 @@
 #include <vector>
 #include <cstring>
 #include <cstdlib>
+#include <ctime>
+#include <sys/time.h>
 #include <cerrno>
 #include <climits>
 #include <exception>
@@ -55,6 +57,74 @@ pthread_mutex_t tci_vals_mutex = PTHREAD_MUTEX_INITIALIZER;
 using WSclient::WebSocket;
 
 static WebSocket::pointer ws = (WebSocket::pointer)0;
+
+// ---------------------------------------------------------------------------
+// TCI wire log.
+//
+// A clean, self-contained transcript of the TCI conversation, written only
+// when the TCI_WIRE_LOG environment variable names a file. The same lines
+// already reach status_log.txt at --debug-level 4, but buried under every
+// modem, waterfall and rig message -- which is not something anyone can
+// reasonably attach to a bug report. Routing faults on the AetherSDR side are
+// currently diagnosed from exactly this: what the client asked for, and what
+// the radio reported back.
+//
+// Sent lines are '>', received '<'. Received text is recorded VERBATIM --
+// handle_message() uppercases before parsing, but the wire is lowercase, and a
+// transcript that silently changes case is a poor exhibit.
+//
+// Every line is flushed: a log that loses its last few lines to a crash loses
+// the part that mattered.
+static FILE* wire_log = (FILE*)0;
+static bool wire_log_tried = false;
+static bool wire_log_smeter = false;
+static pthread_mutex_t wire_log_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+static void tci_wire(char dir, const char* text)
+{
+	guard_lock L(&wire_log_mutex);
+
+	if (!wire_log_tried) {
+		wire_log_tried = true;
+		const char* path = getenv("TCI_WIRE_LOG");
+		if (path && *path) {
+			wire_log = fopen(path, "a");
+			if (wire_log) {
+				// rx_smeter polls twice a second and would swamp the file;
+				// opt in when the S-meter path is what's being investigated.
+				wire_log_smeter = (getenv("TCI_WIRE_LOG_SMETER") != 0);
+				setvbuf(wire_log, NULL, _IOLBF, 0);
+				fprintf(wire_log,
+					"# fldigi TCI wire log -- '>' sent, '<' received, times UTC\n");
+				fflush(wire_log);
+			}
+		}
+	}
+	if (!wire_log || !text) return;
+
+	if (!wire_log_smeter && strstr(text, "rx_smeter") != NULL
+			&& strstr(text, "RX_SMETER") == NULL)
+		return;
+
+	struct timeval tv;
+	gettimeofday(&tv, NULL);
+	struct tm utc;
+	time_t secs = (time_t)tv.tv_sec;
+	gmtime_r(&secs, &utc);
+	char stamp[32];
+	strftime(stamp, sizeof(stamp), "%H:%M:%S", &utc);
+
+	fprintf(wire_log, "%s.%03d %c %s\n",
+		stamp, (int)(tv.tv_usec / 1000), dir, text);
+}
+
+// Note in the transcript that a new connection began -- a reconnect mid-session
+// resets the server's init burst, and a log without that boundary reads as one
+// continuous conversation.
+static void tci_wire_note(const char* what)
+{
+	tci_wire('#', what);
+}
 
 // ---------------------------------------------------------------------------
 // Receiver selection (see the block comment in tci_io.h).
@@ -659,6 +729,10 @@ static void handle_command(const std::string& cmd, const std::vector<std::string
 
 void handle_message(const std::string & message)
 {
+	// Record the raw wire before ucasestr() rewrites it -- the transcript
+	// should show what the server actually sent.
+	tci_wire('<', message.c_str());
+
 	std::string rx = ucasestr(message);
 
 	LOG_DEBUG("R: %s", rx.c_str());
@@ -764,6 +838,7 @@ void *tci_loop(void *)
 				send_list->pop_front();
 				if (send_txt.find("rx_smeter") == std::string::npos)
 					LOG_DEBUG("SEND: %s", send_txt.c_str());
+				tci_wire('>', send_txt.c_str());
 				ws->send(send_txt);
 			}
 		}
@@ -805,6 +880,12 @@ void tci_open(std::string address, std::string port)
 {
 	std::string url;
 	url.assign("ws://").append(address).append(":").append(port);
+
+	{
+		std::string note("--- connecting to ");
+		note.append(url).append(" ---");
+		tci_wire_note(note.c_str());
+	}
 
 	// Must be called before run_mutex is taken below: tci_close() acquires
 	// it itself, and guard_lock is not recursive.

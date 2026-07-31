@@ -7196,6 +7196,14 @@ static void cb_btn_reconnect_tci_server(Fl_Button*, void*) {
   progdefaults.initInterface();
 }
 
+Fl_Choice *menuTciRx=(Fl_Choice *)0;
+
+static void cb_menuTciRx(Fl_Choice* o, void*) {
+  progdefaults.tci_receiver = o->value();
+tci_apply_receiver();
+progdefaults.changed = true;
+}
+
 Fl_Group *grpRigCat=(Fl_Group *)0;
 
 Fl_Check_Button *chkUSERIGCAT=(Fl_Check_Button *)0;
@@ -17521,6 +17529,17 @@ Fl_Double_Window* ConfigureDialog() {
           btn_reconnect_tci_server->tooltip(gettext("Press only if you change the address/port"));
           btn_reconnect_tci_server->callback((Fl_Callback*)cb_btn_reconnect_tci_server);
         } // Fl_Button* btn_reconnect_tci_server
+        o->end();
+      } // Fl_Group* o
+      { Fl_Group* o = new Fl_Group(209, 237, 580, 66, gettext("TCI receiver  (rig control AND audio)"));
+        o->box(FL_ENGRAVED_FRAME);
+        o->align(Fl_Align(FL_ALIGN_TOP_LEFT|FL_ALIGN_INSIDE));
+        { menuTciRx = new Fl_Choice(344, 273, 230, 24, gettext("Rig"));
+          menuTciRx->tooltip(gettext("Which TCI receiver fldigi controls. Selects the receiver for rig control AND audio -- they are always the same receiver, so a logged QSO can never carry a different receiver's frequency. Entries the radio does not have are greyed."));
+          menuTciRx->down_box(FL_BORDER_BOX);
+          menuTciRx->callback((Fl_Callback*)cb_menuTciRx);
+          tci_receiver_ui_refresh();
+        } // Fl_Choice* menuTciRx
         o->end();
       } // Fl_Group* o
       CONFIG_PAGE *p = new CONFIG_PAGE(o, _("Rig Control/TCI"));

@@ -9246,6 +9246,20 @@ progdefaults.changed = true;}
           code0 {\#include "rigsupport.h"}
         }
       }
+      Fl_Group {} {
+        label {TCI receiver  (rig control AND audio)} open
+        xywh {209 237 580 66} box ENGRAVED_FRAME align 21
+      } {
+        Fl_Choice menuTciRx {
+          label Rig
+          callback {progdefaults.tci_receiver = o->value();
+tci_apply_receiver();
+progdefaults.changed = true;}
+          tooltip {Which TCI receiver fldigi controls. Selects the receiver for rig control AND audio -- they are always the same receiver, so a logged QSO can never carry a different receiver's frequency. Entries the radio does not have are greyed.} xywh {344 273 230 24} down_box BORDER_BOX
+          code0 {\#include "tcicat.h"}
+          code1 {tci_receiver_ui_refresh();}
+        } {}
+      }
     }
     Fl_Group grpRigCat {
       label {Rig Control/CAT (rigcat)}

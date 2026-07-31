@@ -37,6 +37,7 @@
 #include "trx.h"
 #include "configuration.h"
 #include "rigsupport.h"
+#include "confdialog.h"   // menuTciRx -- the Rig selector this file populates
 #include "threads.h"
 #include "misc.h"
 #include "debug.h"
@@ -343,6 +344,11 @@ bool init_Tci_RigDialog()
 	xcvr_title = "TCI";
 	setTitle();
 
+	// The init burst may already have delivered trx_count by now; refresh so
+	// the Rig selector reflects the connection immediately rather than only
+	// on the next trx_count change.
+	tci_receiver_ui_refresh();
+
 	return true;
 }
 
@@ -387,6 +393,68 @@ static void tci_do_mode_update(void *)
 void tci_on_mode_update()
 {
 	Fl::awake(tci_do_mode_update);
+}
+
+// Rig selector (Rig Control/TCI -> Rig).
+//
+// All eight entries exist from startup so the receiver can be chosen before
+// ever connecting -- fldigi builds its config dialog long before the TCI
+// socket is up, and an empty list would make the setting unreachable offline.
+// What the radio actually has is applied by GREYING the rest, not by removing
+// them: an out-of-range trx is silently resolved by the server to its first
+// owned slice, so a selectable RX6 on a two-slice rig would drive RX1 while
+// claiming otherwise. Greyed-and-visible also explains itself -- a user who
+// picked RX4 last night can see it is still there, just not currently present.
+void tci_receiver_ui_refresh()
+{
+	if (!menuTciRx) return;   // config dialog not built yet
+
+	static bool populated = false;
+	if (!populated) {
+		for (int i = 0; i < TCI_MAX_RECEIVERS; i++) {
+			char lbl[8];
+			snprintf(lbl, sizeof(lbl), "RX%d", i + 1);
+			menuTciRx->add(lbl);
+		}
+		populated = true;
+	}
+
+	// Only a live connection can tell us what exists. Offline, leave all eight
+	// selectable rather than guessing a count.
+	const int have = tci_connected() ? tci_trx_count() : 0;
+
+	for (int i = 0; i < TCI_MAX_RECEIVERS; i++) {
+		int m = menuTciRx->mode(i);
+		if (have > 0 && i >= have) m |= FL_MENU_INACTIVE;
+		else                       m &= ~FL_MENU_INACTIVE;
+		menuTciRx->mode(i, m);
+	}
+
+	// Show the receiver actually in use, which is the configured one clamped
+	// to what exists. progdefaults is deliberately NOT written back: a slice
+	// closing must not erase the operator's choice, so when it reopens the
+	// original selection returns (see requested_rx_ in tci_io.cxx).
+	tci_set_receiver(progdefaults.tci_receiver);
+	menuTciRx->value(tci_receiver());
+
+	if (!progdefaults.chkUSETCIis)
+		menuTciRx->deactivate();
+	else if (have == 1)
+		menuTciRx->deactivate();   // radio has exactly one receiver
+	else
+		menuTciRx->activate();
+
+	menuTciRx->redraw();
+}
+
+static void tci_do_trx_count_update(void *)
+{
+	tci_receiver_ui_refresh();
+}
+
+void tci_on_trx_count_update()
+{
+	Fl::awake(tci_do_trx_count_update);
 }
 
 static void tci_do_smeter_update(void *)

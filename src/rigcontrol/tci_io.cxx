@@ -578,6 +578,7 @@ static void handle_command(const std::string& cmd, const std::vector<std::string
 		trx_count_.store(ival);
 		tci_clamp_receiver();
 		LOG_INFO("TCI trx_count=%d (using RX%d)", ival, tci_receiver() + 1);
+		tci_on_trx_count_update();
 		return;
 	}
 	else if (cmd == "CHANNELS_COUNT" || cmd == "CHANNEL_COUNT") {

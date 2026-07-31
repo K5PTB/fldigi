@@ -184,4 +184,10 @@ extern void tci_on_freq_update();
 extern void tci_on_mode_update();
 extern void tci_on_smeter_update();
 
+// The server reported a new trx_count -- at connect, and again whenever a
+// receiver appears or disappears (a slice opened or closed in AetherSDR).
+// Drives the Rig selector's greying, so a receiver that no longer exists
+// cannot be chosen.
+extern void tci_on_trx_count_update();
+
 #endif

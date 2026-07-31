@@ -852,6 +852,8 @@ extern Fl_Button *btnDefault_tci_ip;
 extern Fl_Input2 *txt_tci_ip_address;
 extern Fl_Input2 *txt_tci_ip_port;
 extern Fl_Button *btn_reconnect_tci_server;
+#include "tcicat.h"
+extern Fl_Choice *menuTciRx;
 extern Fl_Group *grpRigCat;
 extern Fl_Check_Button *chkUSERIGCAT;
 extern Fl_Group *grpRigCAT;

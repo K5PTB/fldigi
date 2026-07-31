@@ -10360,7 +10360,7 @@ http://www.pulseaudio.org/wiki/ServerStrings} xywh {512 88 225 24}
           class Fl_Input2
         }
       }
-      Fl_Group {open
+      Fl_Group {} {open
         xywh {255 116 530 32} box ENGRAVED_FRAME
       } {
         Fl_Round_Button {btnAudioIO[4]} {

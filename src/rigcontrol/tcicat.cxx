@@ -409,14 +409,17 @@ void tci_receiver_ui_refresh()
 {
 	if (!menuTciRx) return;   // config dialog not built yet
 
-	static bool populated = false;
-	if (!populated) {
+	// Gate on the widget's own state, never a file-scope "done once" flag:
+	// Fl_Menu_::size() is 0 for an empty menu and item-count+1 once filled
+	// (the terminating entry counts). A latch would leave the selector
+	// permanently empty if the config dialog were ever rebuilt.
+	if (menuTciRx->size() != TCI_MAX_RECEIVERS + 1) {
+		menuTciRx->clear();
 		for (int i = 0; i < TCI_MAX_RECEIVERS; i++) {
 			char lbl[8];
 			snprintf(lbl, sizeof(lbl), "RX%d", i + 1);
 			menuTciRx->add(lbl);
 		}
-		populated = true;
 	}
 
 	// Only a live connection can tell us what exists. Offline, leave all eight
@@ -430,19 +433,28 @@ void tci_receiver_ui_refresh()
 		menuTciRx->mode(i, m);
 	}
 
-	// Show the receiver actually in use, which is the configured one clamped
-	// to what exists. progdefaults is deliberately NOT written back: a slice
-	// closing must not erase the operator's choice, so when it reopens the
-	// original selection returns (see requested_rx_ in tci_io.cxx).
+	// Display the CHOICE, not the clamped value in use.
+	//
+	// Showing the clamped value would quietly destroy the choice: the widget
+	// would read back RX1 while the config still said RX4, and the next time
+	// the callback fired it would write that RX1 into progdefaults -- undoing
+	// the whole point of keeping requested_rx_ separate from rx_ (tci_io.cxx).
+	// The greyed entry is what communicates "chosen but not currently
+	// present"; the selector is not the place to also report it.
 	tci_set_receiver(progdefaults.tci_receiver);
-	menuTciRx->value(tci_receiver());
+	int show = progdefaults.tci_receiver;
+	if (show < 0 || show >= TCI_MAX_RECEIVERS) show = 0;
+	menuTciRx->value(show);
 
-	if (!progdefaults.chkUSETCIis)
-		menuTciRx->deactivate();
-	else if (have == 1)
-		menuTciRx->deactivate();   // radio has exactly one receiver
-	else
+	// The only reason to disable the whole selector is TCI CAT being off.
+	// A one-receiver radio does NOT disable it -- the other entries are
+	// already greyed, so nothing wrong can be picked, and leaving it live
+	// lets a receiver be chosen ahead of opening a second slice, exactly as
+	// it can be while offline.
+	if (progdefaults.chkUSETCIis)
 		menuTciRx->activate();
+	else
+		menuTciRx->deactivate();
 
 	menuTciRx->redraw();
 }

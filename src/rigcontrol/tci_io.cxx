@@ -82,8 +82,16 @@ static void tci_clamp_receiver(void)
 	if (want < 0) want = 0;
 	if (want >= TCI_MAX_RECEIVERS) want = TCI_MAX_RECEIVERS - 1;
 
+	// Out of range -> RX1, NOT the highest that exists. Two reasons:
+	//   - it matches what the server does with an out-of-range trx anyway
+	//     (resolves to the first owned slice), so we address the receiver it
+	//     would have picked instead of a third, different one;
+	//   - it is STABLE. Clamping to have-1 makes the receiver in use wander
+	//     as slices open: a stored RX4 would sit on RX1 with one slice, jump
+	//     to RX2 when a second opened, RX3 on a third -- re-subscribing audio
+	//     mid-session to receivers the operator never chose.
 	const int have = trx_count_.load();
-	if (have > 0 && want >= have) want = have - 1;
+	if (have > 0 && want >= have) want = 0;
 
 	rx_.store(want);
 }

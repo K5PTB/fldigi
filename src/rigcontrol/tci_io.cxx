@@ -144,6 +144,15 @@ static std::atomic<int> rx_(0);
 static std::atomic<int> trx_count_(1);
 static std::atomic<int> channels_count_(1);
 
+// Which receiver the server says holds transmit, from tx_enable:<trx>,<bool>.
+// -1 = not reported yet (an older or non-AetherSDR server may never send it,
+// in which case every consumer must degrade to "unknown", never to "mismatch").
+//
+// This is NOT the receiver fldigi drives -- it is the one the RADIO will
+// transmit on, which is not always the same thing, and the difference is what
+// makes a QSO get logged at the wrong frequency.
+static std::atomic<int> tx_trx_(-1);
+
 // Recompute rx_ from the request and the current trx_count. Callable from
 // either thread.
 static void tci_clamp_receiver(void)
@@ -175,6 +184,7 @@ void tci_set_receiver(int trx)
 int tci_receiver(void)     { return rx_.load(); }
 int tci_trx_count(void)    { return trx_count_.load(); }
 int tci_channels_count(void) { return channels_count_.load(); }
+int tci_tx_receiver(void)  { return tx_trx_.load(); }
 
 // Single-writer (this file's receiver thread, via handle_binary()) /
 // single-reader (SoundTCI::Read(), called from trx_thread) ring buffer of
@@ -662,6 +672,37 @@ static void handle_command(const std::string& cmd, const std::vector<std::string
 	else if (cmd == "CHANNELS_COUNT" || cmd == "CHANNEL_COUNT") {
 		if (!arg_int(a, 0, ival) || ival < 1) return;
 		channels_count_.store(ival);
+		return;
+	}
+
+	// tx_enable:<trx>,<bool> -- server-to-client only (TCI v2.0 and Thetis both
+	// define it that way; never send it). Arrives per receiver in the init
+	// burst and again whenever transmit moves, so it is the one authoritative
+	// answer to "which receiver will actually transmit".
+	//
+	// Deliberately NOT filtered by the selected receiver, unlike every handler
+	// below: the whole point is to learn about the receiver we are NOT on.
+	else if (cmd == "TX_ENABLE") {
+		int trx = 0;
+		if (!arg_int(a, 0, trx) || trx < 0) return;
+		if (a.size() < 2) return;
+		const bool on = (a[1] == "TRUE" || a[1] == "1");
+		const int prev = tx_trx_.load();
+		if (on)
+			tx_trx_.store(trx);
+		else if (prev == trx)
+			// Only the receiver that HELD transmit may clear it. A `false` for
+			// some other receiver is routine init-burst noise -- treating it as
+			// "transmit is now nowhere" would blank the indicator on connect.
+			tx_trx_.store(-1);
+		const int now = tx_trx_.load();
+		if (now != prev) {
+			if (now < 0)
+				LOG_INFO("%s", "TCI tx_enable: transmit receiver unassigned");
+			else
+				LOG_INFO("TCI tx_enable: transmit receiver is RX%d", now + 1);
+			tci_on_tx_enable_update();
+		}
 		return;
 	}
 

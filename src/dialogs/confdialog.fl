@@ -9259,6 +9259,10 @@ progdefaults.changed = true;}
           code0 {\#include "tcicat.h"}
           code1 {tci_receiver_ui_refresh();}
         } {}
+        Fl_Box boxTciTxRx {
+          label {TX: --}
+          tooltip {Which receiver the RADIO will transmit on, as reported by the server. A TCI client cannot move the radio's transmit assignment, so this is not always the receiver selected at left. When they differ, fldigi decodes and logs one frequency while the carrier goes out on another -- the log entry would be wrong.} xywh {592 273 190 24} align 20
+        }
       }
     }
     Fl_Group grpRigCat {

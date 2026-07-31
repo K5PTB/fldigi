@@ -7197,6 +7197,8 @@ static void cb_menuTciRx(Fl_Choice* o, void*) {
   progdefaults.changed = true;
 }
 
+Fl_Box *boxTciTxRx=(Fl_Box *)0;
+
 Fl_Group *grpRigCat=(Fl_Group *)0;
 
 Fl_Check_Button *chkUSERIGCAT=(Fl_Check_Button *)0;
@@ -17536,6 +17538,13 @@ Fl_Double_Window* ConfigureDialog() {
           menuTciRx->callback((Fl_Callback*)cb_menuTciRx);
           tci_receiver_ui_refresh();
         } // Fl_Choice* menuTciRx
+        { boxTciTxRx = new Fl_Box(592, 273, 190, 24, gettext("TX: --"));
+          boxTciTxRx->tooltip(gettext("Which receiver the RADIO will transmit on, as reported by the server. A TCI c"
+"lient cannot move the radio\'s transmit assignment, so this is not always the "
+"receiver selected at left. When they differ, fldigi decodes and logs one frequ"
+"ency while the carrier goes out on another -- the log entry would be wrong."));
+          boxTciTxRx->align(Fl_Align(FL_ALIGN_LEFT|FL_ALIGN_INSIDE));
+        } // Fl_Box* boxTciTxRx
         o->end();
       } // Fl_Group* o
       CONFIG_PAGE *p = new CONFIG_PAGE(o, _("Rig Control/TCI"));

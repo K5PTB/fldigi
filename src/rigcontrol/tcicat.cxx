@@ -317,6 +317,16 @@ void tci_set_ptt(int on)
 	// to, which is guaranteed because a single index drives both (tci_io.h).
 	// Transmitting on a receiver whose audio we are not feeding would be
 	// silent carrier on someone else's slice.
+	// Key-time warning. The panel indicator only helps someone looking at the
+	// config dialog; this lands in the log next to the transmission itself,
+	// which is what anyone auditing a suspect QSO will actually read.
+	const int txrx = tci_tx_receiver();
+	if (on && txrx >= 0 && txrx != tci_receiver()) {
+		LOG_WARN("TCI: keying RX%d but the radio transmits on RX%d -- "
+			"this QSO would be logged at the wrong frequency",
+			tci_receiver() + 1, txrx + 1);
+	}
+
 	char cmd[40];
 	if (on && progdefaults.btnAudioIOis == SND_IDX_TCI)
 		snprintf(cmd, sizeof(cmd), "TRX:%d,true,tci;", tci_receiver());
@@ -457,6 +467,11 @@ void tci_receiver_ui_refresh()
 		menuTciRx->deactivate();
 
 	menuTciRx->redraw();
+
+	// The mismatch warning compares against the selection, so it has to be
+	// re-evaluated whenever the selection or the connection changes -- not
+	// only when the server moves transmit.
+	tci_tx_indicator_refresh();
 }
 
 static void tci_do_trx_count_update(void *)
@@ -467,6 +482,58 @@ static void tci_do_trx_count_update(void *)
 void tci_on_trx_count_update()
 {
 	Fl::awake(tci_do_trx_count_update);
+}
+
+// Transmit-receiver indicator.
+//
+// A TCI client cannot move the radio's transmit assignment: an explicit
+// trx:<n>,true keys wherever transmit already is. So the receiver fldigi is
+// tuned to, decoding, and about to LOG is not necessarily the one the carrier
+// leaves on -- and because fldigi logs a QSO at the CAT frequency, that
+// divergence writes the wrong frequency into the ADIF.
+//
+// The server already broadcasts tx_enable:<trx>,<bool>, so this is knowable;
+// it just has to be said. Shown rather than blocked: listening on one receiver
+// while transmitting on another is legitimate split operation, and the
+// operator is the one licensed to make that call. What is not acceptable is
+// it happening silently.
+void tci_tx_indicator_refresh()
+{
+	if (!boxTciTxRx) return;
+
+	static std::string label;
+	const int tx = tci_tx_receiver();
+	const int sel = tci_receiver();
+
+	if (!progdefaults.chkUSETCIis || !tci_connected()) {
+		label = "TX: --";
+		boxTciTxRx->labelcolor(FL_INACTIVE_COLOR);
+	} else if (tx < 0) {
+		// The server has not reported it. Say "unknown" -- never imply a
+		// mismatch we have no evidence for.
+		label = "TX: unknown";
+		boxTciTxRx->labelcolor(FL_INACTIVE_COLOR);
+	} else if (tx == sel) {
+		label = "TX: RX" + std::to_string(tx + 1);
+		boxTciTxRx->labelcolor(FL_FOREGROUND_COLOR);
+	} else {
+		// The case worth shouting about.
+		label = "TX: RX" + std::to_string(tx + 1) + "  \342\206\220 not this rig!";
+		boxTciTxRx->labelcolor(FL_RED);
+	}
+
+	boxTciTxRx->copy_label(label.c_str());
+	boxTciTxRx->redraw();
+}
+
+static void tci_do_tx_enable_update(void *)
+{
+	tci_tx_indicator_refresh();
+}
+
+void tci_on_tx_enable_update()
+{
+	Fl::awake(tci_do_tx_enable_update);
 }
 
 static void tci_do_smeter_update(void *)

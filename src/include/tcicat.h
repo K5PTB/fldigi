@@ -59,6 +59,13 @@ extern void tci_apply_receiver();
 // a regeneration cannot drop it -- same reason as tci_audio_ui_enable().
 extern void tci_receiver_ui_refresh();
 
+// Update the "TX: RXn" indicator beside the Rig selector, including the
+// warning shown when the radio transmits on a receiver other than the one
+// fldigi is driving. Safe before the config dialog exists or before
+// connecting. Lives here rather than in the fluid-generated confdialog.cxx
+// so a regeneration cannot drop it.
+extern void tci_tx_indicator_refresh();
+
 extern bool init_Tci_RigDialog();
 
 #endif

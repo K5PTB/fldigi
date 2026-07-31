@@ -126,6 +126,18 @@ extern int tci_receiver(void);
 extern int tci_trx_count(void);
 extern int tci_channels_count(void);
 
+// The receiver the RADIO will transmit on, per the server's tx_enable
+// broadcast. -1 when the server has not reported it (older or non-AetherSDR
+// servers may never send tx_enable at all).
+//
+// This is NOT necessarily tci_receiver(). A TCI client cannot move the
+// radio's transmit assignment -- an explicit trx:<n>,true keys wherever
+// transmit already is -- so a client can be tuned to, decoding, and about to
+// LOG one receiver while the carrier goes out on another. fldigi logs a QSO
+// at the CAT frequency, so that divergence writes the wrong frequency into
+// the ADIF. Callers use this to say so out loud rather than log silently.
+extern int tci_tx_receiver(void);
+
 // RX audio: subscribe/unsubscribe a TRX's audio stream, and pull
 // mono float samples the receiver thread has decoded from binary TCI
 // frames into an internal ring buffer. tci_audio_start() requests a fixed
@@ -189,5 +201,9 @@ extern void tci_on_smeter_update();
 // Drives the Rig selector's greying, so a receiver that no longer exists
 // cannot be chosen.
 extern void tci_on_trx_count_update();
+
+// The server moved (or reported) the transmit receiver. Drives the TX
+// indicator beside the Rig selector.
+extern void tci_on_tx_enable_update();
 
 #endif

@@ -178,6 +178,13 @@ bool tci_init()
 	std::string address = progdefaults.tci_ip_address;
 	std::string port = progdefaults.tci_ip_port;
 
+	// Push the configured receiver in BEFORE opening: tci_io.cxx is
+	// protocol-only and never reads progdefaults, and the init burst starts
+	// arriving the moment the socket is up. Setting it afterwards would race
+	// the first vfo:/modulation: reports, which are filtered by receiver.
+	// The value is re-clamped against trx_count when that arrives.
+	tci_set_receiver(progdefaults.tci_receiver);
+
 	tci_open(address, port);
 
 	// tci_open() starts the receiver thread and returns immediately; the
@@ -211,6 +218,38 @@ bool tci_init()
 	return true;
 }
 
+// The user changed the Rig selection (Rig Control/TCI -> Rig). Called from the
+// FLTK main thread.
+//
+// Audio deliberately is NOT re-subscribed here: SoundTCI::Read() notices
+// tci_receiver() no longer matches what it subscribed to and does the
+// stop/discard/start itself, because it runs on trx_thread and is the only
+// thread allowed to move the RX ring's read index.
+//
+// What this DOES do is ask the new receiver for its current state. Every
+// inbound report is filtered by receiver, so without a re-read the frequency
+// and mode on screen would stay at the old receiver's values until the new
+// one happened to change by itself -- looking exactly like the switch had not
+// taken effect.
+void tci_apply_receiver()
+{
+	tci_set_receiver(progdefaults.tci_receiver);
+
+	if (!tci_running()) return;
+
+	char cmd[32];
+	// TCI read form: name:args; with the value omitted (spec section 4.2).
+	snprintf(cmd, sizeof(cmd), "vfo:%d,0;", tci_receiver());
+	tci_send(cmd);
+	snprintf(cmd, sizeof(cmd), "modulation:%d;", tci_receiver());
+	tci_send(cmd);
+	snprintf(cmd, sizeof(cmd), "rx_smeter:%d,0;", tci_receiver());
+	tci_send(cmd);
+
+	LOG_INFO("TCI receiver -> RX%d (of %d reported)",
+		tci_receiver() + 1, tci_trx_count());
+}
+
 void tci_cat_close()
 {
 	// Disarm first: this is the user/config-driven teardown, the one case
@@ -237,7 +276,10 @@ void tci_setfreq(unsigned long long f)
 {
 	if (!tci_running()) return;
 	char cmd[40];
-	snprintf(cmd, sizeof(cmd), "vfo:0,0,%llu;", f);
+	// vfo:<receiver>,<channel>,<hz>; -- channel stays 0 (VFO A); the receiver
+	// is the user's Rig selection. See tci_io.h for why one index drives both
+	// CAT and audio.
+	snprintf(cmd, sizeof(cmd), "vfo:%d,0,%llu;", tci_receiver(), f);
 	tci_send(cmd);
 }
 
@@ -251,7 +293,9 @@ void tci_setmode(const char *md)
 	std::string mode(md);
 	for (size_t i = 0; i < mode.size(); i++)
 		mode[i] = (char)tolower((unsigned char)mode[i]);
-	std::string cmd = "modulation:0,";
+	char pfx[24];
+	snprintf(pfx, sizeof(pfx), "modulation:%d,", tci_receiver());
+	std::string cmd(pfx);
 	cmd.append(mode).append(";");
 	tci_send(cmd);
 }
@@ -268,10 +312,16 @@ void tci_set_ptt(int on)
 	// to USB/LSB rather than those literal names. Only requested when TCI
 	// is actually the active TX audio backend; CAT-only PTT (soundcard/DAX
 	// still carrying the audio) must not force the server onto TX_CHRONO.
+	// Keys the SELECTED receiver -- the same one the TX audio is subscribed
+	// to, which is guaranteed because a single index drives both (tci_io.h).
+	// Transmitting on a receiver whose audio we are not feeding would be
+	// silent carrier on someone else's slice.
+	char cmd[40];
 	if (on && progdefaults.btnAudioIOis == SND_IDX_TCI)
-		tci_send("TRX:0,true,tci;");
+		snprintf(cmd, sizeof(cmd), "TRX:%d,true,tci;", tci_receiver());
 	else
-		tci_send(on ? "TRX:0,true;" : "TRX:0,false;");
+		snprintf(cmd, sizeof(cmd), "TRX:%d,%s;", tci_receiver(), on ? "true" : "false");
+	tci_send(cmd);
 }
 
 bool init_Tci_RigDialog()

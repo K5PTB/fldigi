@@ -2395,6 +2395,10 @@
         ELEM_(std::string, tci_ip_port,    "TCI_IP_PORT",                               \
               "IP port number of TCI server",                                           \
               DEFAULT_TCI_IP_PORT)                                                      \
+        ELEM_(int, tci_receiver, "TCI_RECEIVER",                                        \
+              "TCI receiver index (0 = RX1). Selects the receiver for BOTH rig "        \
+              "control and audio -- see tci_io.h",                                      \
+              0)                                                                        \
         ELEM_(bool, show_all_codes, "SHOW_ALL_CODES",                                   \
               "Display all rx char's using ascii3 table",                               \
               false)                                                                    \

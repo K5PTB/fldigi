@@ -2494,6 +2494,7 @@ SoundTCI::SoundTCI()
 {
 	rx_open = false;
 	rx_conn_gen = 0;
+	rx_subscribed = -1;
 	rx_blocksize = 1024;
 	rx_snd_buffer = 0;
 	rx_src_state = 0;
@@ -2591,7 +2592,8 @@ int SoundTCI::Open(int mode, int freq)
 		src_reset(tx_src_state);
 
 	if (mode == O_RDONLY || mode == O_RDWR) {
-		tci_audio_start(0);
+		rx_subscribed = tci_receiver();
+		tci_audio_start(rx_subscribed);
 		rx_conn_gen = tci_connection_generation();
 		rx_open = true;
 	}
@@ -2658,7 +2660,10 @@ void SoundTCI::flush(unsigned dir)
 void SoundTCI::Close(unsigned dir)
 {
 	if ((dir == (unsigned)O_RDONLY || dir == UINT_MAX) && rx_open) {
-		tci_audio_stop(0);
+		// Unsubscribe the receiver we actually subscribed to, not whatever is
+		// selected now -- the user may have changed the Rig selection since.
+		tci_audio_stop(rx_subscribed >= 0 ? rx_subscribed : tci_receiver());
+		rx_subscribed = -1;
 		rx_open = false;
 	}
 }
@@ -2730,13 +2735,29 @@ size_t SoundTCI::Read(float *buf, size_t count)
 	// longer resets the ring itself -- reset the resampler (its filter history
 	// and buffered-but-unemitted samples would otherwise pitch-smear the first
 	// blocks and mix in stale pre-disconnect audio), then re-subscribe.
+	//
+	// The same seam also handles the user changing the Rig selection
+	// (Rig Control/TCI -> Rig) mid-session. That happens on the FLTK thread,
+	// but the unsubscribe/discard/resubscribe must happen HERE: we are
+	// rx_audio_rb's reader, and tci_rx_audio_discard() moves the reader's own
+	// index. Order matters -- audio_stop the OLD receiver while its index is
+	// still meaningful, then discard, then subscribe the new one. Skipping
+	// the discard would let the previous receiver's buffered audio be decoded
+	// as if it came from the new one.
 	unsigned gen = tci_connection_generation();
-	if (gen != rx_conn_gen) {
+	int want_rx = tci_receiver();
+	if (gen != rx_conn_gen || want_rx != rx_subscribed) {
+		// Only unsubscribe when the socket is the same one we subscribed on.
+		// On a reconnect (gen bump) the old subscription died with the old
+		// connection, and audio_stop for it would address the new server.
+		if (gen == rx_conn_gen && rx_subscribed >= 0 && rx_subscribed != want_rx)
+			tci_audio_stop(rx_subscribed);
 		tci_rx_audio_discard();
 		if (rx_src_state)
 			src_reset(rx_src_state);
-		tci_audio_start(0);
+		tci_audio_start(want_rx);
 		rx_conn_gen = gen;
+		rx_subscribed = want_rx;
 	}
 
 	double ratio = req_sample_rate / (double)sample_frequency;

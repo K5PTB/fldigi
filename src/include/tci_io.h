@@ -37,12 +37,12 @@
 // TciServer default and its WSJT-X-compatible optimization path).
 #define TCI_AUDIO_SAMPLE_RATE 48000
 
-// fldigi controls a single TRX/receiver (RX0) via TCI, unlike flrig which
-// tracks two independent slices (slice_0/slice_1). Only the fields fldigi
-// actually consumes are kept: everything else the protocol reports (DDS,
-// volume, drive, squelch, tune, split, TX power/SWR, filter bandwidth,
-// inbound PTT, and the second receiver) had no reader and is no longer parsed
-// -- see handle_command() in tci_io.cxx.
+// fldigi controls ONE TCI receiver at a time, but which one is selectable
+// (Rig Control/TCI -> Rig), unlike flrig which tracks two independent slices
+// (slice_0/slice_1) simultaneously. Only the fields fldigi actually consumes
+// are kept: everything else the protocol reports (DDS, volume, drive, squelch,
+// tune, split, TX power/SWR, filter bandwidth and inbound PTT) had no reader
+// and is no longer parsed -- see handle_command() in tci_io.cxx.
 struct TCI_VFO {
 	int freq;
 	std::string mod;
@@ -76,7 +76,57 @@ extern void tci_close();
 extern void tci_send(std::string txt);
 extern bool tci_running();
 
-// RX audio: subscribe/unsubscribe TRX 0's audio stream, and pull
+// ---------------------------------------------------------------------
+// Receiver selection.
+//
+// TCI addresses state with TWO independent indexes: the RECEIVER (`trx`,
+// an independent receiver -- on AetherSDR one owned FlexRadio slice, with
+// its own frequency, mode, S-meter AND audio stream) and the CHANNEL
+// (VFO A/B within that receiver, the split axis). fldigi drives one
+// receiver, VFO A. This block owns the receiver; the channel stays 0.
+//
+// ONE index drives CAT *and* audio -- deliberately, matching WSJT-X, whose
+// TCITransceiver has a single `rx_` member behind audio_start, both audio
+// frame filters, PTT, vfo, modulation and every inbound notification guard.
+// Splitting them would let fldigi log a QSO at one receiver's frequency
+// while decoding another's audio, silently writing the wrong frequency into
+// the ADIF.
+//
+// This file stays protocol-only -- it must not read progdefaults (nothing
+// else here does). tcicat.cxx, which owns the fldigi-side config, pushes the
+// selection in with tci_set_receiver(), mirroring how the tci_on_*_update()
+// hooks push the other way.
+//
+// Thread safety: written on the FLTK main thread, read on the receiver
+// thread for every inbound frame -- so the value is atomic, for the same
+// reason tci_watchdog_armed is (see tcicat.cxx).
+
+// Highest receiver fldigi offers. 8 = the FLEX-6700's slice ceiling, the
+// largest receiver count AetherSDR can advertise. A server reporting more
+// is capped here rather than misaddressed.
+#define TCI_MAX_RECEIVERS 8
+
+// Select the receiver. Clamped to [0, TCI_MAX_RECEIVERS-1] and, once the
+// server has reported trx_count, to what actually exists -- an out-of-range
+// trx is NOT refused by AetherSDR, it silently resolves to the first owned
+// slice, so an unclamped value drives the wrong receiver with no error
+// anywhere. Safe to call before connecting; re-applied against trx_count
+// when the init burst arrives.
+extern void tci_set_receiver(int trx);
+
+// The receiver actually in use: what tci_set_receiver() was given, after
+// clamping. Every outbound command and inbound filter uses this, never a
+// literal 0.
+extern int tci_receiver(void);
+
+// Init-burst capabilities (TCI Protocol v2.0 section 4.1). Both default to 1
+// so a server that omits them behaves exactly as a single-receiver rig.
+// trx_count re-sends whenever the count changes, so this tracks slices
+// opening and closing rather than being latched at connect.
+extern int tci_trx_count(void);
+extern int tci_channels_count(void);
+
+// RX audio: subscribe/unsubscribe a TRX's audio stream, and pull
 // mono float samples the receiver thread has decoded from binary TCI
 // frames into an internal ring buffer. tci_audio_start() requests a fixed
 // format (48000 Hz, mono, float32) so SoundTCI never has to branch on

@@ -48,6 +48,11 @@ extern void tci_setfreq(unsigned long long f);   // like hamlib_setfreq
 extern void tci_setmode(const char *md);         // like rigCAT_setmode
 extern void tci_set_ptt(int on);                 // like set_flrig_ptt
 
+// Apply progdefaults.tci_receiver to the protocol layer and re-read the newly
+// selected receiver's state. Called from the Rig selector's callback in
+// confdialog; safe to call when not connected.
+extern void tci_apply_receiver();
+
 extern bool init_Tci_RigDialog();
 
 #endif

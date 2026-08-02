@@ -38,7 +38,7 @@ sudo apt-get install -y \
     build-essential autoconf automake libtool pkg-config gettext autopoint \
     libfltk1.4-dev libsamplerate0-dev libsndfile1-dev libpng-dev \
     portaudio19-dev libpulse-dev libasound2-dev \
-    libhamlib-dev libxft-dev libxinerama-dev
+    libhamlib-dev libxft-dev libxinerama-dev libudev-dev
 
 # 2. Source (master = TCI feature on fldigi 4.2.13)
 git clone https://github.com/K5PTB/fldigi.git
@@ -79,7 +79,8 @@ export PATH="$(brew --prefix gettext)/bin:$PATH"     # autopoint, for autoreconf
 autoreconf -vfi
 ./configure \
     PKG_CONFIG_PATH="$(brew --prefix)/lib/pkgconfig:$(brew --prefix libsndfile)/lib/pkgconfig" \
-    FLTK_CONFIG="$(brew --prefix)/bin/fltk-config"
+    FLTK_CONFIG="$(brew --prefix)/bin/fltk-config" \
+    LDFLAGS="-L$(brew --prefix)/lib"
 make -C src -j4        # -C src avoids the asciidoc/xsltproc man-page build
 
 # 4. Run
@@ -89,8 +90,42 @@ make -C src -j4        # -C src avoids the asciidoc/xsltproc man-page build
 - Homebrew's `fltk` is 1.4.x — what you want.
 - `brew install hamlib` too if you also want hardware rig control (optional,
   autodetected).
-- This produces a runnable `./src/fldigi`; building a distributable `.app`
-  bundle is a separate packaging step.
+- **`LDFLAGS` is required on Apple Silicon, not optional.** FLTK 1.4.5's
+  `fltk-config` emits `-ljpeg`, and `/opt/homebrew/lib` is not a default linker
+  search path on arm64 — while `/usr/local/lib` is, on Intel. Without it the
+  link fails with `ld: library 'jpeg' not found`. It is harmless on Intel, so
+  the line above is correct for both.
+
+### Optional: a double-clickable `.app` bundle
+
+`make -C src appbundle` wraps the binary, copies its Homebrew dylibs into
+`Contents/Frameworks`, and rewrites their install paths so the result is
+self-contained:
+
+```sh
+make -C src appbundle
+```
+
+**On Apple Silicon you must re-sign afterwards, or macOS will kill the app**
+(it exits 137 with no message). `install_name_tool` invalidates the ad-hoc code
+signatures that arm64 requires, and the bundler does not re-apply them:
+
+```sh
+cd src/fldigi-*/
+find fldigi-*.app/Contents/Frameworks -name '*.dylib' -exec codesign --force --sign - {} \;
+codesign --force --sign - fldigi-*.app/Contents/MacOS/*
+codesign --force --sign - fldigi-*.app
+```
+
+Verify with `codesign -v fldigi-*.app` (silence means good) and by running
+`fldigi-*.app/Contents/MacOS/fldigi --version`.
+
+A bundle you built yourself opens normally. One you *download* is quarantined
+by macOS and — because these builds are not signed with an Apple Developer
+certificate — will be refused with *"Apple could not verify … is free of
+malware"*, offering **Move to Trash**. Clear it with
+`xattr -dr com.apple.quarantine <path>.app`, or approve it under
+**System Settings → Privacy & Security → Open Anyway**.
 
 ## Windows
 

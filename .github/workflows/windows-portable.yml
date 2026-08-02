@@ -4,7 +4,7 @@ name: Windows x64 portable
 # natively on Windows with MSYS2 / MINGW64. No cross-compilation, no MXE.
 #
 #   workflow_dispatch  -> build any ref, download the zip from the run's Artifacts
-#   release published  -> build the tag and attach the zip to that release
+#   tag push (v*)      -> build that tag and attach the zip to its release
 
 on:
   workflow_dispatch:
@@ -18,8 +18,8 @@ on:
         type: boolean
         required: false
         default: false
-  release:
-    types: [published]
+  push:
+    tags: ['v*']
   # Self-test: any change to this workflow rebuilds the zip, so a packaging
   # regression is caught in the PR that causes it rather than at release time.
   pull_request:
@@ -75,7 +75,7 @@ jobs:
           if [ -z "${REF}" ]; then
             case "${{ github.event_name }}" in
               pull_request) REF="${{ github.event.pull_request.head.sha }}" ;;
-              release)      REF="${{ github.event.release.tag_name }}" ;;
+              push)         REF="${{ github.ref_name }}" ;;
               *)            REF="${{ github.sha }}" ;;
             esac
           fi
@@ -222,10 +222,7 @@ jobs:
           retention-days: 90
 
       - name: Attach to release
-        if: github.event_name == 'release'
-        run: |
-          set -euo pipefail
-          gh release upload "${{ github.event.release.tag_name }}" \
-            "${{ steps.package.outputs.zip }}" --clobber
-        env:
-          GH_TOKEN: ${{ github.token }}
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          files: ${{ steps.package.outputs.zip }}

@@ -32,6 +32,8 @@
 #include <vector>
 #include <cstring>
 #include <cstdlib>
+#include <ctime>
+#include <sys/time.h>
 #include <cerrno>
 #include <climits>
 #include <exception>
@@ -55,6 +57,134 @@ pthread_mutex_t tci_vals_mutex = PTHREAD_MUTEX_INITIALIZER;
 using WSclient::WebSocket;
 
 static WebSocket::pointer ws = (WebSocket::pointer)0;
+
+// ---------------------------------------------------------------------------
+// TCI wire log.
+//
+// A clean, self-contained transcript of the TCI conversation, written only
+// when the TCI_WIRE_LOG environment variable names a file. The same lines
+// already reach status_log.txt at --debug-level 4, but buried under every
+// modem, waterfall and rig message -- which is not something anyone can
+// reasonably attach to a bug report. Routing faults on the AetherSDR side are
+// currently diagnosed from exactly this: what the client asked for, and what
+// the radio reported back.
+//
+// Sent lines are '>', received '<'. Received text is recorded VERBATIM --
+// handle_message() uppercases before parsing, but the wire is lowercase, and a
+// transcript that silently changes case is a poor exhibit.
+//
+// Every line is flushed: a log that loses its last few lines to a crash loses
+// the part that mattered.
+static FILE* wire_log = (FILE*)0;
+static bool wire_log_tried = false;
+static bool wire_log_smeter = false;
+static pthread_mutex_t wire_log_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+static void tci_wire(char dir, const char* text)
+{
+	guard_lock L(&wire_log_mutex);
+
+	if (!wire_log_tried) {
+		wire_log_tried = true;
+		const char* path = getenv("TCI_WIRE_LOG");
+		if (path && *path) {
+			wire_log = fopen(path, "a");
+			if (wire_log) {
+				// rx_smeter polls twice a second and would swamp the file;
+				// opt in when the S-meter path is what's being investigated.
+				wire_log_smeter = (getenv("TCI_WIRE_LOG_SMETER") != 0);
+				setvbuf(wire_log, NULL, _IOLBF, 0);
+				fprintf(wire_log,
+					"# fldigi TCI wire log -- '>' sent, '<' received, times UTC\n");
+				fflush(wire_log);
+			}
+		}
+	}
+	if (!wire_log || !text) return;
+
+	if (!wire_log_smeter && strstr(text, "rx_smeter") != NULL
+			&& strstr(text, "RX_SMETER") == NULL)
+		return;
+
+	struct timeval tv;
+	gettimeofday(&tv, NULL);
+	struct tm utc;
+	time_t secs = (time_t)tv.tv_sec;
+	gmtime_r(&secs, &utc);
+	char stamp[32];
+	strftime(stamp, sizeof(stamp), "%H:%M:%S", &utc);
+
+	fprintf(wire_log, "%s.%03d %c %s\n",
+		stamp, (int)(tv.tv_usec / 1000), dir, text);
+}
+
+// Note in the transcript that a new connection began -- a reconnect mid-session
+// resets the server's init burst, and a log without that boundary reads as one
+// continuous conversation.
+static void tci_wire_note(const char* what)
+{
+	tci_wire('#', what);
+}
+
+// ---------------------------------------------------------------------------
+// Receiver selection (see the block comment in tci_io.h).
+//
+// All three are written on the FLTK main thread (tci_set_receiver) or the
+// receiver thread (the init-burst handlers) and read on both, so all three
+// are atomic. Relaxed ordering is enough: each is an independent scalar and
+// no other state is published through them.
+//
+// requested_rx_ is what the user asked for; rx_ is that clamped to what the
+// server says exists. Keeping the request separate matters when trx_count
+// GROWS -- a user who selected RX4 while only two slices were open gets RX4
+// back when the third and fourth open, instead of being silently demoted to
+// RX2 forever by a one-way clamp.
+static std::atomic<int> requested_rx_(0);
+static std::atomic<int> rx_(0);
+static std::atomic<int> trx_count_(1);
+static std::atomic<int> channels_count_(1);
+
+// Which receiver the server says holds transmit, from tx_enable:<trx>,<bool>.
+// -1 = not reported yet (an older or non-AetherSDR server may never send it,
+// in which case every consumer must degrade to "unknown", never to "mismatch").
+//
+// This is NOT the receiver fldigi drives -- it is the one the RADIO will
+// transmit on, which is not always the same thing, and the difference is what
+// makes a QSO get logged at the wrong frequency.
+static std::atomic<int> tx_trx_(-1);
+
+// Recompute rx_ from the request and the current trx_count. Callable from
+// either thread.
+static void tci_clamp_receiver(void)
+{
+	int want = requested_rx_.load();
+	if (want < 0) want = 0;
+	if (want >= TCI_MAX_RECEIVERS) want = TCI_MAX_RECEIVERS - 1;
+
+	// Out of range -> RX1, NOT the highest that exists. Two reasons:
+	//   - it matches what the server does with an out-of-range trx anyway
+	//     (resolves to the first owned slice), so we address the receiver it
+	//     would have picked instead of a third, different one;
+	//   - it is STABLE. Clamping to have-1 makes the receiver in use wander
+	//     as slices open: a stored RX4 would sit on RX1 with one slice, jump
+	//     to RX2 when a second opened, RX3 on a third -- re-subscribing audio
+	//     mid-session to receivers the operator never chose.
+	const int have = trx_count_.load();
+	if (have > 0 && want >= have) want = 0;
+
+	rx_.store(want);
+}
+
+void tci_set_receiver(int trx)
+{
+	requested_rx_.store(trx);
+	tci_clamp_receiver();
+}
+
+int tci_receiver(void)     { return rx_.load(); }
+int tci_trx_count(void)    { return trx_count_.load(); }
+int tci_channels_count(void) { return channels_count_.load(); }
+int tci_tx_receiver(void)  { return tx_trx_.load(); }
 
 // Single-writer (this file's receiver thread, via handle_binary()) /
 // single-reader (SoundTCI::Read(), called from trx_thread) ring buffer of
@@ -260,10 +390,10 @@ static void handle_tx_chrono(const TciAudioHeader& chrono)
 
 	if (!ws) return;
 
-	// fldigi subscribes TX audio for a single TRX (audio_start:0). A pull for
-	// any other receiver must not be answered with RX0's TX audio, which would
-	// radiate this station's transmission on the wrong slice.
-	if (chrono.receiver != 0) return;
+	// fldigi subscribes TX audio for a single TRX (audio_start:<selected>). A
+	// pull for any other receiver must not be answered with our TX audio,
+	// which would radiate this station's transmission on the wrong slice.
+	if (chrono.receiver != (uint32_t)tci_receiver()) return;
 
 	size_t channels_req = chrono.channels ? chrono.channels : 2;
 	size_t total_req = chrono.length ? chrono.length : 2048;
@@ -382,10 +512,10 @@ static void handle_binary(const std::vector<uint8_t>& msg)
 	// removed) would splice a different receiver's audio into the modem as
 	// if it were ours. Decode only what we subscribed to; log the rest so a
 	// re-index that silences RX is diagnosable rather than a mystery.
-	if (hdr.receiver != 0) {
+	if (hdr.receiver != (uint32_t)tci_receiver()) {
 		if (++rejected <= 5 || rejected % 200 == 0)
-			LOG_WARN("RX_AUDIO for receiver %u ignored (subscribed to 0 only)",
-				hdr.receiver);
+			LOG_WARN("RX_AUDIO for receiver %u ignored (subscribed to %d only)",
+				hdr.receiver, tci_receiver());
 		return;
 	}
 
@@ -513,23 +643,134 @@ static bool arg_int(const std::vector<std::string>& a, size_t i, int& out)
 	return true;
 }
 
-// fldigi tracks a single TRX/receiver (RX0) via TCI; the rxnbr/slice index
-// carried by the protocol is parsed but ignored (accept updates regardless
-// of which receiver/slice they were addressed to), unlike flrig which
-// tracks slice_0/slice_1 independently.
+// A report addressed to receiver N is proof receiver N exists.
+//
+// trx_count is NOT re-sent when a receiver appears: measured against AetherSDR
+// v26.7.4.1 and main @ eeca18d5, opening a second slice pushes a full
+// per-receiver burst (active_slice/vfo/dds/lock/rx_filter_band/...) addressed
+// to the new index while the count stays at its connect-time value. A client
+// that learns the receiver set from trx_count alone therefore never discovers
+// a slice opened after connect, and a selection the clamp demoted is never
+// restored -- the request survives in requested_rx_, but nothing re-runs the
+// clamp.
+//
+// Bounded by kMaxReceivers so a malformed or unexpected index cannot inflate
+// the count: 8 is the FLEX-6700 slice ceiling, the largest AetherSDR advertises
+// and the same ceiling the Rig selector is built against.
+static void tci_note_receiver_seen(int rx)
+{
+	static const int kMaxReceivers = 8;
+	if (rx < 0 || rx >= kMaxReceivers) return;
+
+	const int have = trx_count_.load();
+	if (rx < have) return;
+
+	trx_count_.store(rx + 1);
+	tci_clamp_receiver();
+	LOG_INFO("TCI receiver RX%d seen; trx_count %d -> %d (using RX%d)",
+	         rx + 1, have, rx + 1, tci_receiver() + 1);
+	tci_on_trx_count_update();
+}
+
+// fldigi tracks ONE TCI receiver at a time -- which one is the user's choice
+// (tci_set_receiver, Rig Control/TCI -> Rig) -- unlike flrig, which tracks
+// slice_0/slice_1 simultaneously. Reports addressed to any other receiver are
+// dropped here.
 static void handle_command(const std::string& cmd, const std::vector<std::string>& a)
 {
 	int ival = 0;
 
+	// Init burst (TCI v2.0 section 4.1). These arrive before any command is
+	// sent, so the selected receiver can be validated against reality at
+	// connect rather than guessed.
+	//
+	// Do NOT assume TRX_COUNT is re-sent when the count changes. It is not:
+	// AetherSDR (v26.7.4.1 and main @ eeca18d5) announces a receiver that
+	// opens after connect only through its addressed reports, never through
+	// a new trx_count. tci_note_receiver_seen() is what actually keeps the
+	// count current; this handler still runs the clamp because the server
+	// MAY send a count (it does at connect, and a shrink can only be
+	// learned this way).
+	//
+	// Spelling: the TCI PDF calls it CHANNEL_COUNT (singular), but the
+	// reference implementation (eesdr-tci) and AetherSDR both emit the
+	// PLURAL channels_count; WSJT-X likewise matches on "channels_count".
+	// Accept both rather than betting on either.
+	if (cmd == "TRX_COUNT") {              // trx_count:2;
+		if (!arg_int(a, 0, ival) || ival < 1) return;
+		trx_count_.store(ival);
+		tci_clamp_receiver();
+		LOG_INFO("TCI trx_count=%d (using RX%d)", ival, tci_receiver() + 1);
+		tci_on_trx_count_update();
+		return;
+	}
+	else if (cmd == "CHANNELS_COUNT" || cmd == "CHANNEL_COUNT") {
+		if (!arg_int(a, 0, ival) || ival < 1) return;
+		channels_count_.store(ival);
+		return;
+	}
+
+	// tx_enable:<trx>,<bool> -- server-to-client only (TCI v2.0 and Thetis both
+	// define it that way; never send it). Arrives per receiver in the init
+	// burst and again whenever transmit moves, so it is the one authoritative
+	// answer to "which receiver will actually transmit".
+	//
+	// Deliberately NOT filtered by the selected receiver, unlike every handler
+	// below: the whole point is to learn about the receiver we are NOT on.
+	else if (cmd == "TX_ENABLE") {
+		int trx = 0;
+		if (!arg_int(a, 0, trx) || trx < 0) return;
+		if (a.size() < 2) return;
+		const bool on = (a[1] == "TRUE" || a[1] == "1");
+		const int prev = tx_trx_.load();
+		if (on)
+			tx_trx_.store(trx);
+		else if (prev == trx)
+			// Only the receiver that HELD transmit may clear it. A `false` for
+			// some other receiver is routine init-burst noise -- treating it as
+			// "transmit is now nowhere" would blank the indicator on connect.
+			tx_trx_.store(-1);
+		const int now = tx_trx_.load();
+		if (now != prev) {
+			if (now < 0)
+				LOG_INFO("%s", "TCI tx_enable: transmit receiver unassigned");
+			else
+				LOG_INFO("TCI tx_enable: transmit receiver is RX%d", now + 1);
+			tci_on_tx_enable_update();
+		}
+		return;
+	}
+
 	// TCI addresses every report as cmd:<receiver>,<channel>,...  The receiver
 	// (a[0]) is the slice/radio index; the channel (a[1]) is VFO A/B within it.
-	// fldigi tracks RX0's VFO A only, so BOTH must be 0 -- a[0] filters out the
-	// second receiver on a dual-slice rig, a[1] filters out its VFO B. Checking
-	// only the channel (the earlier bug) let another slice's VFO A overwrite
-	// RX0's displayed frequency/mode/S-meter.
+	// fldigi tracks the selected receiver's VFO A only, so a[0] must match it
+	// and a[1] must be 0 -- a[0] filters out the other receivers on a
+	// multi-slice rig, a[1] filters out this one's VFO B. Checking only the
+	// channel (the earlier bug) let another slice's VFO A overwrite the
+	// displayed frequency/mode/S-meter.
+	// Learn the receiver set from the reports themselves (see
+	// tci_note_receiver_seen). Deliberately BEFORE `self` is read, so the very
+	// burst that announces a new receiver is already filtered against the
+	// restored selection rather than the demoted one.
+	//
+	// Restricted to reports whose first argument is unambiguously a receiver
+	// index. The same burst carries GLOBAL settings whose first argument is a
+	// small integer -- audio_stream_channels:2, mic_level:40, volume:-5 -- and
+	// reading those as receiver indices invents receivers that do not exist,
+	// which would defeat the very clamp this restores. VFO and MODULATION are
+	// both cmd:<rx>,... and both appear in a new receiver's burst, so they are
+	// sufficient.
+	if (cmd == "VFO" || cmd == "MODULATION") {
+		int rx_seen = 0;
+		if (arg_int(a, 0, rx_seen))
+			tci_note_receiver_seen(rx_seen);
+	}
+
+	const int self = tci_receiver();
+
 	if (cmd == "RX_SMETER") {              // rx_smeter:<rx>,<chan>,-73;
 		int rx = 0, chan = 0;
-		if (!arg_int(a, 0, rx) || rx != 0) return;
+		if (!arg_int(a, 0, rx) || rx != self) return;
 		if (!arg_int(a, 1, chan) || chan != 0) return;
 		if (!arg_int(a, 2, ival)) return;
 		{
@@ -540,7 +781,7 @@ static void handle_command(const std::string& cmd, const std::vector<std::string
 	}
 	else if (cmd == "VFO") {               // vfo:<rx>,<chan>,7032050;
 		int rx = 0, chan = 0;
-		if (!arg_int(a, 0, rx) || rx != 0) return;
+		if (!arg_int(a, 0, rx) || rx != self) return;
 		if (!arg_int(a, 1, chan) || chan != 0) return;
 		if (!arg_int(a, 2, ival)) return;
 		// A negative frequency would be sign-extended to ~1.8e19 Hz by
@@ -554,7 +795,7 @@ static void handle_command(const std::string& cmd, const std::vector<std::string
 	}
 	else if (cmd == "MODULATION") {        // modulation:<rx>,cw;
 		int rx = 0;
-		if (!arg_int(a, 0, rx) || rx != 0) return;   // RX0 only (no channel field)
+		if (!arg_int(a, 0, rx) || rx != self) return; // selected RX only (no channel field)
 		if (a.size() < 2 || a[1].empty()) return;
 		{
 			guard_lock lock(&tci_vals_mutex);
@@ -582,6 +823,10 @@ static void handle_command(const std::string& cmd, const std::vector<std::string
 
 void handle_message(const std::string & message)
 {
+	// Record the raw wire before ucasestr() rewrites it -- the transcript
+	// should show what the server actually sent.
+	tci_wire('<', message.c_str());
+
 	std::string rx = ucasestr(message);
 
 	LOG_DEBUG("R: %s", rx.c_str());
@@ -671,7 +916,9 @@ void *tci_loop(void *)
 		unsigned long now = mono_ms();
 		if (now >= next_smeter) {
 			next_smeter = now + SMETER_MS;
-			tci_queue("rx_smeter:0,0;");
+			char smcmd[32];
+			snprintf(smcmd, sizeof(smcmd), "rx_smeter:%d,0;", tci_receiver());
+			tci_queue(smcmd);
 		}
 		{
 			// The list must be examined under the lock: an unguarded
@@ -685,6 +932,7 @@ void *tci_loop(void *)
 				send_list->pop_front();
 				if (send_txt.find("rx_smeter") == std::string::npos)
 					LOG_DEBUG("SEND: %s", send_txt.c_str());
+				tci_wire('>', send_txt.c_str());
 				ws->send(send_txt);
 			}
 		}
@@ -726,6 +974,12 @@ void tci_open(std::string address, std::string port)
 {
 	std::string url;
 	url.assign("ws://").append(address).append(":").append(port);
+
+	{
+		std::string note("--- connecting to ");
+		note.append(url).append(" ---");
+		tci_wire_note(note.c_str());
+	}
 
 	// Must be called before run_mutex is taken below: tci_close() acquires
 	// it itself, and guard_lock is not recursive.

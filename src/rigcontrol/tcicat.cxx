@@ -37,6 +37,7 @@
 #include "trx.h"
 #include "configuration.h"
 #include "rigsupport.h"
+#include "confdialog.h"   // menuTciRx -- the Rig selector this file populates
 #include "threads.h"
 #include "misc.h"
 #include "debug.h"
@@ -178,6 +179,13 @@ bool tci_init()
 	std::string address = progdefaults.tci_ip_address;
 	std::string port = progdefaults.tci_ip_port;
 
+	// Push the configured receiver in BEFORE opening: tci_io.cxx is
+	// protocol-only and never reads progdefaults, and the init burst starts
+	// arriving the moment the socket is up. Setting it afterwards would race
+	// the first vfo:/modulation: reports, which are filtered by receiver.
+	// The value is re-clamped against trx_count when that arrives.
+	tci_set_receiver(progdefaults.tci_receiver);
+
 	tci_open(address, port);
 
 	// tci_open() starts the receiver thread and returns immediately; the
@@ -211,6 +219,38 @@ bool tci_init()
 	return true;
 }
 
+// The user changed the Rig selection (Rig Control/TCI -> Rig). Called from the
+// FLTK main thread.
+//
+// Audio deliberately is NOT re-subscribed here: SoundTCI::Read() notices
+// tci_receiver() no longer matches what it subscribed to and does the
+// stop/discard/start itself, because it runs on trx_thread and is the only
+// thread allowed to move the RX ring's read index.
+//
+// What this DOES do is ask the new receiver for its current state. Every
+// inbound report is filtered by receiver, so without a re-read the frequency
+// and mode on screen would stay at the old receiver's values until the new
+// one happened to change by itself -- looking exactly like the switch had not
+// taken effect.
+void tci_apply_receiver()
+{
+	tci_set_receiver(progdefaults.tci_receiver);
+
+	if (!tci_running()) return;
+
+	char cmd[32];
+	// TCI read form: name:args; with the value omitted (spec section 4.2).
+	snprintf(cmd, sizeof(cmd), "vfo:%d,0;", tci_receiver());
+	tci_send(cmd);
+	snprintf(cmd, sizeof(cmd), "modulation:%d;", tci_receiver());
+	tci_send(cmd);
+	snprintf(cmd, sizeof(cmd), "rx_smeter:%d,0;", tci_receiver());
+	tci_send(cmd);
+
+	LOG_INFO("TCI receiver -> RX%d (of %d reported)",
+		tci_receiver() + 1, tci_trx_count());
+}
+
 void tci_cat_close()
 {
 	// Disarm first: this is the user/config-driven teardown, the one case
@@ -237,7 +277,10 @@ void tci_setfreq(unsigned long long f)
 {
 	if (!tci_running()) return;
 	char cmd[40];
-	snprintf(cmd, sizeof(cmd), "vfo:0,0,%llu;", f);
+	// vfo:<receiver>,<channel>,<hz>; -- channel stays 0 (VFO A); the receiver
+	// is the user's Rig selection. See tci_io.h for why one index drives both
+	// CAT and audio.
+	snprintf(cmd, sizeof(cmd), "vfo:%d,0,%llu;", tci_receiver(), f);
 	tci_send(cmd);
 }
 
@@ -251,7 +294,9 @@ void tci_setmode(const char *md)
 	std::string mode(md);
 	for (size_t i = 0; i < mode.size(); i++)
 		mode[i] = (char)tolower((unsigned char)mode[i]);
-	std::string cmd = "modulation:0,";
+	char pfx[24];
+	snprintf(pfx, sizeof(pfx), "modulation:%d,", tci_receiver());
+	std::string cmd(pfx);
 	cmd.append(mode).append(";");
 	tci_send(cmd);
 }
@@ -268,10 +313,26 @@ void tci_set_ptt(int on)
 	// to USB/LSB rather than those literal names. Only requested when TCI
 	// is actually the active TX audio backend; CAT-only PTT (soundcard/DAX
 	// still carrying the audio) must not force the server onto TX_CHRONO.
+	// Keys the SELECTED receiver -- the same one the TX audio is subscribed
+	// to, which is guaranteed because a single index drives both (tci_io.h).
+	// Transmitting on a receiver whose audio we are not feeding would be
+	// silent carrier on someone else's slice.
+	// Key-time warning. The panel indicator only helps someone looking at the
+	// config dialog; this lands in the log next to the transmission itself,
+	// which is what anyone auditing a suspect QSO will actually read.
+	const int txrx = tci_tx_receiver();
+	if (on && txrx >= 0 && txrx != tci_receiver()) {
+		LOG_WARN("TCI: keying RX%d but the radio transmits on RX%d -- "
+			"this QSO would be logged at the wrong frequency",
+			tci_receiver() + 1, txrx + 1);
+	}
+
+	char cmd[40];
 	if (on && progdefaults.btnAudioIOis == SND_IDX_TCI)
-		tci_send("TRX:0,true,tci;");
+		snprintf(cmd, sizeof(cmd), "TRX:%d,true,tci;", tci_receiver());
 	else
-		tci_send(on ? "TRX:0,true;" : "TRX:0,false;");
+		snprintf(cmd, sizeof(cmd), "TRX:%d,%s;", tci_receiver(), on ? "true" : "false");
+	tci_send(cmd);
 }
 
 bool init_Tci_RigDialog()
@@ -292,6 +353,11 @@ bool init_Tci_RigDialog()
 
 	xcvr_title = "TCI";
 	setTitle();
+
+	// The init burst may already have delivered trx_count by now; refresh so
+	// the Rig selector reflects the connection immediately rather than only
+	// on the next trx_count change.
+	tci_receiver_ui_refresh();
 
 	return true;
 }
@@ -337,6 +403,137 @@ static void tci_do_mode_update(void *)
 void tci_on_mode_update()
 {
 	Fl::awake(tci_do_mode_update);
+}
+
+// Rig selector (Rig Control/TCI -> Rig).
+//
+// All eight entries exist from startup so the receiver can be chosen before
+// ever connecting -- fldigi builds its config dialog long before the TCI
+// socket is up, and an empty list would make the setting unreachable offline.
+// What the radio actually has is applied by GREYING the rest, not by removing
+// them: an out-of-range trx is silently resolved by the server to its first
+// owned slice, so a selectable RX6 on a two-slice rig would drive RX1 while
+// claiming otherwise. Greyed-and-visible also explains itself -- a user who
+// picked RX4 last night can see it is still there, just not currently present.
+void tci_receiver_ui_refresh()
+{
+	if (!menuTciRx) return;   // config dialog not built yet
+
+	// Gate on the widget's own state, never a file-scope "done once" flag:
+	// Fl_Menu_::size() is 0 for an empty menu and item-count+1 once filled
+	// (the terminating entry counts). A latch would leave the selector
+	// permanently empty if the config dialog were ever rebuilt.
+	if (menuTciRx->size() != TCI_MAX_RECEIVERS + 1) {
+		menuTciRx->clear();
+		for (int i = 0; i < TCI_MAX_RECEIVERS; i++) {
+			char lbl[8];
+			snprintf(lbl, sizeof(lbl), "RX%d", i + 1);
+			menuTciRx->add(lbl);
+		}
+	}
+
+	// Only a live connection can tell us what exists. Offline, leave all eight
+	// selectable rather than guessing a count.
+	const int have = tci_connected() ? tci_trx_count() : 0;
+
+	for (int i = 0; i < TCI_MAX_RECEIVERS; i++) {
+		int m = menuTciRx->mode(i);
+		if (have > 0 && i >= have) m |= FL_MENU_INACTIVE;
+		else                       m &= ~FL_MENU_INACTIVE;
+		menuTciRx->mode(i, m);
+	}
+
+	// Display the CHOICE, not the clamped value in use.
+	//
+	// Showing the clamped value would quietly destroy the choice: the widget
+	// would read back RX1 while the config still said RX4, and the next time
+	// the callback fired it would write that RX1 into progdefaults -- undoing
+	// the whole point of keeping requested_rx_ separate from rx_ (tci_io.cxx).
+	// The greyed entry is what communicates "chosen but not currently
+	// present"; the selector is not the place to also report it.
+	tci_set_receiver(progdefaults.tci_receiver);
+	int show = progdefaults.tci_receiver;
+	if (show < 0 || show >= TCI_MAX_RECEIVERS) show = 0;
+	menuTciRx->value(show);
+
+	// The only reason to disable the whole selector is TCI CAT being off.
+	// A one-receiver radio does NOT disable it -- the other entries are
+	// already greyed, so nothing wrong can be picked, and leaving it live
+	// lets a receiver be chosen ahead of opening a second slice, exactly as
+	// it can be while offline.
+	if (progdefaults.chkUSETCIis)
+		menuTciRx->activate();
+	else
+		menuTciRx->deactivate();
+
+	menuTciRx->redraw();
+
+	// The mismatch warning compares against the selection, so it has to be
+	// re-evaluated whenever the selection or the connection changes -- not
+	// only when the server moves transmit.
+	tci_tx_indicator_refresh();
+}
+
+static void tci_do_trx_count_update(void *)
+{
+	tci_receiver_ui_refresh();
+}
+
+void tci_on_trx_count_update()
+{
+	Fl::awake(tci_do_trx_count_update);
+}
+
+// Transmit-receiver indicator.
+//
+// A TCI client cannot move the radio's transmit assignment: an explicit
+// trx:<n>,true keys wherever transmit already is. So the receiver fldigi is
+// tuned to, decoding, and about to LOG is not necessarily the one the carrier
+// leaves on -- and because fldigi logs a QSO at the CAT frequency, that
+// divergence writes the wrong frequency into the ADIF.
+//
+// The server already broadcasts tx_enable:<trx>,<bool>, so this is knowable;
+// it just has to be said. Shown rather than blocked: listening on one receiver
+// while transmitting on another is legitimate split operation, and the
+// operator is the one licensed to make that call. What is not acceptable is
+// it happening silently.
+void tci_tx_indicator_refresh()
+{
+	if (!boxTciTxRx) return;
+
+	static std::string label;
+	const int tx = tci_tx_receiver();
+	const int sel = tci_receiver();
+
+	if (!progdefaults.chkUSETCIis || !tci_connected()) {
+		label = "TX: --";
+		boxTciTxRx->labelcolor(FL_INACTIVE_COLOR);
+	} else if (tx < 0) {
+		// The server has not reported it. Say "unknown" -- never imply a
+		// mismatch we have no evidence for.
+		label = "TX: unknown";
+		boxTciTxRx->labelcolor(FL_INACTIVE_COLOR);
+	} else if (tx == sel) {
+		label = "TX: RX" + std::to_string(tx + 1);
+		boxTciTxRx->labelcolor(FL_FOREGROUND_COLOR);
+	} else {
+		// The case worth shouting about.
+		label = "TX: RX" + std::to_string(tx + 1) + "  \342\206\220 not this rig!";
+		boxTciTxRx->labelcolor(FL_RED);
+	}
+
+	boxTciTxRx->copy_label(label.c_str());
+	boxTciTxRx->redraw();
+}
+
+static void tci_do_tx_enable_update(void *)
+{
+	tci_tx_indicator_refresh();
+}
+
+void tci_on_tx_enable_update()
+{
+	Fl::awake(tci_do_tx_enable_update);
 }
 
 static void tci_do_smeter_update(void *)

@@ -507,6 +507,12 @@ void tci_audio_ui_enable(bool on)
 		btnAudioIO[SND_IDX_TCI]->deactivate();
 	}
 	btnAudioIO[SND_IDX_TCI]->redraw();
+
+	// Every checkbox that can turn TCI CAT on or off already calls this, so
+	// it is also the one place that knows the Rig selector (Rig Control/TCI)
+	// needs re-enabling or greying. Piggy-backing here keeps that wiring out
+	// of the fluid-generated callbacks, which a regeneration would drop.
+	tci_receiver_ui_refresh();
 }
 
 void sound_close(void)

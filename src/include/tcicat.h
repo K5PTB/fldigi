@@ -48,6 +48,24 @@ extern void tci_setfreq(unsigned long long f);   // like hamlib_setfreq
 extern void tci_setmode(const char *md);         // like rigCAT_setmode
 extern void tci_set_ptt(int on);                 // like set_flrig_ptt
 
+// Apply progdefaults.tci_receiver to the protocol layer and re-read the newly
+// selected receiver's state. Called from the Rig selector's callback in
+// confdialog; safe to call when not connected.
+extern void tci_apply_receiver();
+
+// Populate/grey/enable the Rig selector to match the current connection and
+// trx_count. Safe to call before the config dialog exists or before
+// connecting. Lives here rather than in the fluid-generated confdialog.cxx so
+// a regeneration cannot drop it -- same reason as tci_audio_ui_enable().
+extern void tci_receiver_ui_refresh();
+
+// Update the "TX: RXn" indicator beside the Rig selector, including the
+// warning shown when the radio transmits on a receiver other than the one
+// fldigi is driving. Safe before the config dialog exists or before
+// connecting. Lives here rather than in the fluid-generated confdialog.cxx
+// so a regeneration cannot drop it.
+extern void tci_tx_indicator_refresh();
+
 extern bool init_Tci_RigDialog();
 
 #endif

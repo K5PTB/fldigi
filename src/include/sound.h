@@ -387,6 +387,11 @@ private:
 	std::vector<float> tx_outbuf;
 	bool	rx_open;
 	unsigned rx_conn_gen;
+	// Which TCI receiver the current audio_start subscription is for. The
+	// user can change the Rig selection at any time from the FLTK thread;
+	// Read() (on trx_thread) notices the mismatch and re-subscribes, which
+	// is the only thread allowed to discard the RX ring. -1 = not subscribed.
+	int	rx_subscribed;
 };
 
 class SoundNull : public SoundBase

@@ -643,6 +643,35 @@ static bool arg_int(const std::vector<std::string>& a, size_t i, int& out)
 	return true;
 }
 
+// A report addressed to receiver N is proof receiver N exists.
+//
+// trx_count is NOT re-sent when a receiver appears: measured against AetherSDR
+// v26.7.4.1 and main @ eeca18d5, opening a second slice pushes a full
+// per-receiver burst (active_slice/vfo/dds/lock/rx_filter_band/...) addressed
+// to the new index while the count stays at its connect-time value. A client
+// that learns the receiver set from trx_count alone therefore never discovers
+// a slice opened after connect, and a selection the clamp demoted is never
+// restored -- the request survives in requested_rx_, but nothing re-runs the
+// clamp.
+//
+// Bounded by kMaxReceivers so a malformed or unexpected index cannot inflate
+// the count: 8 is the FLEX-6700 slice ceiling, the largest AetherSDR advertises
+// and the same ceiling the Rig selector is built against.
+static void tci_note_receiver_seen(int rx)
+{
+	static const int kMaxReceivers = 8;
+	if (rx < 0 || rx >= kMaxReceivers) return;
+
+	const int have = trx_count_.load();
+	if (rx < have) return;
+
+	trx_count_.store(rx + 1);
+	tci_clamp_receiver();
+	LOG_INFO("TCI receiver RX%d seen; trx_count %d -> %d (using RX%d)",
+	         rx + 1, have, rx + 1, tci_receiver() + 1);
+	tci_on_trx_count_update();
+}
+
 // fldigi tracks ONE TCI receiver at a time -- which one is the user's choice
 // (tci_set_receiver, Rig Control/TCI -> Rig) -- unlike flrig, which tracks
 // slice_0/slice_1 simultaneously. Reports addressed to any other receiver are
@@ -653,9 +682,15 @@ static void handle_command(const std::string& cmd, const std::vector<std::string
 
 	// Init burst (TCI v2.0 section 4.1). These arrive before any command is
 	// sent, so the selected receiver can be validated against reality at
-	// connect rather than guessed. TRX_COUNT is also re-sent whenever the
-	// count changes -- a slice opening or closing in AetherSDR -- which is
-	// why the clamp is re-run here and not only at connect.
+	// connect rather than guessed.
+	//
+	// Do NOT assume TRX_COUNT is re-sent when the count changes. It is not:
+	// AetherSDR (v26.7.4.1 and main @ eeca18d5) announces a receiver that
+	// opens after connect only through its addressed reports, never through
+	// a new trx_count. tci_note_receiver_seen() is what actually keeps the
+	// count current; this handler still runs the clamp because the server
+	// MAY send a count (it does at connect, and a shrink can only be
+	// learned this way).
 	//
 	// Spelling: the TCI PDF calls it CHANNEL_COUNT (singular), but the
 	// reference implementation (eesdr-tci) and AetherSDR both emit the
@@ -713,6 +748,24 @@ static void handle_command(const std::string& cmd, const std::vector<std::string
 	// multi-slice rig, a[1] filters out this one's VFO B. Checking only the
 	// channel (the earlier bug) let another slice's VFO A overwrite the
 	// displayed frequency/mode/S-meter.
+	// Learn the receiver set from the reports themselves (see
+	// tci_note_receiver_seen). Deliberately BEFORE `self` is read, so the very
+	// burst that announces a new receiver is already filtered against the
+	// restored selection rather than the demoted one.
+	//
+	// Restricted to reports whose first argument is unambiguously a receiver
+	// index. The same burst carries GLOBAL settings whose first argument is a
+	// small integer -- audio_stream_channels:2, mic_level:40, volume:-5 -- and
+	// reading those as receiver indices invents receivers that do not exist,
+	// which would defeat the very clamp this restores. VFO and MODULATION are
+	// both cmd:<rx>,... and both appear in a new receiver's burst, so they are
+	// sufficient.
+	if (cmd == "VFO" || cmd == "MODULATION") {
+		int rx_seen = 0;
+		if (arg_int(a, 0, rx_seen))
+			tci_note_receiver_seen(rx_seen);
+	}
+
 	const int self = tci_receiver();
 
 	if (cmd == "RX_SMETER") {              // rx_smeter:<rx>,<chan>,-73;

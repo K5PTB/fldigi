@@ -213,6 +213,12 @@ TAGS datatags[] = {
 
 //=====================================================================
 
+static void ucase( std::string & str)
+{
+	for (size_t n = 0; n < str.length(); n++)
+		str[n] = toupper(str[n]);
+}
+
 void print(size_t &p0, int indent)
 {
 #ifdef DEBUGXML
@@ -287,9 +293,9 @@ bool getBool( size_t p0)
 	std::string stemp = getElement(p0);
 	if (stemp.length() == 0)
 		return false;
-	if (strcasecmp(stemp.c_str(), "true") == 0)
+	ucase(stemp);
+	if (stemp.find("TRUE") != std::string::npos || stemp.find("1") != std::string::npos)
 		return true;
-	if (stemp == "1") return true;
 	return false;
 }
 
@@ -551,6 +557,7 @@ void parseRIG(size_t &p0)
 //---------------------------------------------------------------------
 
 void parseDEBUG(size_t &p0){
+
 	bool val = getBool(p0);
 	xmlrig.debug = val;
 	size_t pend = tagEnd(p0);

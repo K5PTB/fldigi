@@ -1268,40 +1268,7 @@ int main (int argc, char *argv[])
 #ifndef __APPLE__
 	progStatus.initLastState();
 	fl_digi_main->show(argc, argv);
-
-#	ifndef __WIN32__
-	// See https://groups.google.com/g/fltkgeneral/c/hcjV-rgjHWM
-	// read in the current window hints, then modify them to allow icon transparency
-#		if FLDIGI_FLTK_API_MAJOR == 1 && FLDIGI_FLTK_API_MINOR < 4
-	// FLTK 1.3 has no Wayland backend and no fl_x11_display(); the display is
-	// always X11 here, so this is upstream's original path (kept, with an
-	// added null-check on the hints result). fl_x11_display() below is a 1.4
-	// symbol -- guarding it here is what keeps the tree buildable on FLTK 1.3.
-	XWMHints* hints = XGetWMHints(fl_display, fl_xid(fl_digi_main));
-	if (hints) {
-		hints->flags |= IconMaskHint; // ensure transparency mask is enabled for the XPM icon
-		hints->icon_mask |= IconPixmapHint;
-		XSetWMHints(fl_display, fl_xid(fl_digi_main), hints);
-		XFree(hints);
-	}
-#		else
-	// FLTK 1.4+: fl_x11_display() is NULL under the Wayland backend, where
-	// fl_xid() is not a real X11 window; the unguarded Xlib calls below then
-	// crash (SIGSEGV in XGetWMHints). Only touch WM hints under X11.
-	if (fl_x11_display()) {
-		XWMHints* hints = XGetWMHints(fl_display, fl_xid(fl_digi_main));
-		if (hints) {
-			hints->flags |= IconMaskHint; // ensure transparency mask is enabled for the XPM icon
-			hints->icon_mask |= IconPixmapHint;
-			XSetWMHints(fl_display, fl_xid(fl_digi_main), hints);
-			XFree(hints);
-		}
-	}
-#		endif
-#	endif
-
 #else
-
 #	if FLDIGI_FLTK_API_MAJOR == 1 && FLDIGI_FLTK_API_MINOR < 4
 	fl_digi_main->show(argc, argv);
 	progStatus.initLastState();

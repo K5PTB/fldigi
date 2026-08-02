@@ -524,6 +524,18 @@ int configuration::setDefaults()
 	inpMyQth->value(myQth.c_str());
 	inpMyLocator->value(myLocator.c_str());
 	inpMyAntenna->value(myAntenna.c_str());
+	inpContestCall->value(contestCall.c_str());
+	inpContestOperators->value(contestOperators.c_str());
+	inpContestLocator->value(contestLocator.c_str());
+	inpContestClub->value(contestClub.c_str());
+	inpContestName->value(contestName.c_str());
+	inpContestAddress->value(contestAddress.c_str());
+	inpContestCity->value(contestCity.c_str());
+	inpContestPostalCode->value(contestPostalCode.c_str());
+	inpContestEmail->value(contestEmail.c_str());
+	inpContestSoapbox->value(contestSoapbox.c_str());
+	inpContestDarcDok->value(contestDarcDok.c_str());
+	choiceContestPower->value(contestPower);
 	UseLeadingZeros = btnUseLeadingZeros->value();
 	ContestStart = (int)nbrContestStart->value();
 	ContestDigits = (int)nbrContestDigits->value();
@@ -911,7 +923,7 @@ const char* configuration::strBaudRate()
 
 int configuration::nBaudRate(const char *szBR)
 {
-    for (size_t i = 1; i < sizeof(szBaudRates); i++)
+    for (size_t i = 1; i < sizeof(szBaudRates) / sizeof(*szBaudRates); i++)
         if (strcmp(szBaudRates[i], szBR) == 0)
             return i - 1;
     return 0;

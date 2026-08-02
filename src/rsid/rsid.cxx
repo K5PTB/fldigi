@@ -275,7 +275,7 @@ void cRsId::receive(const float* buf, size_t len)
 void cRsId::search(void)
 {
 	if (progdefaults.rsidWideSearch) {
-		nBinLow = 3;
+		nBinLow = 10;
 		nBinHigh = RSID_FFT_SIZE - 32;
 	}
 	else {
@@ -284,7 +284,7 @@ void cRsId::search(void)
 		nBinLow = (int)((centerfreq  - progdefaults.rsid_min_bw / 2) * bpf);
 		nBinHigh = (int)((centerfreq  + progdefaults.rsid_min_bw / 2) * bpf);
 	}
-	if (nBinLow < 3) nBinLow = 3;
+	if (nBinLow < 10) nBinLow = 10;
 	if (nBinHigh > RSID_FFT_SIZE - 32) nBinHigh = RSID_FFT_SIZE - 32;
 
 	bool bReverse = !(wf->Reverse() ^ wf->USB());

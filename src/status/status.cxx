@@ -100,6 +100,8 @@ status progStatus = {
 	false,				// bool Rig_Contest_UI;
 	false,				// bool DOCKEDSCOPE;
 	false,				// bool tbar_is_docked;
+	true,				// bool EnableVideo_ID;
+
 //	50,					// int RxTextHeight;
 	WMIN/2,				// int tiled_group_x;
 	true,				// bool show_channels;
@@ -572,6 +574,7 @@ if (!bWF_only) {
 	spref.set("noriglog", NO_RIGLOG);
 	spref.set("docked_scope", DOCKEDSCOPE);
 	spref.set("tbar_is_docked", tbar_is_docked);
+	spref.set("EnableVideo_ID", EnableVideo_ID);
 
 	spref.set("rigctl_x", rigX);
 	spref.set("rigctl_y", rigY);
@@ -900,6 +903,7 @@ void status::loadLastState()
 	spref.get("noriglog", i, NO_RIGLOG); NO_RIGLOG = i;
 	spref.get("docked_scope", i, DOCKEDSCOPE); DOCKEDSCOPE = i;
 	spref.get("tbar_is_docked", i, tbar_is_docked); tbar_is_docked = i;
+	spref.get("EnableVideo_ID", i, EnableVideo_ID); EnableVideo_ID = i;
 
 	spref.get("rigctl_x", rigX, rigX);
 	spref.get("rigctl_y", rigY, rigY);

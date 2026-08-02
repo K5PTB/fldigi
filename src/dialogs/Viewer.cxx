@@ -173,7 +173,7 @@ void viewer_redraw()
 		mainViewer->makecolors();
 		mainViewer->resize(mainViewer->x(), mainViewer->y(), mainViewer->w(), mainViewer->h());
 	}
-	if (dlgViewer) {
+	if (dlgViewer && brwsViewer) {
 		brwsViewer->usb = usb;
 		brwsViewer->rfc = rfc;
 		brwsViewer->resize(

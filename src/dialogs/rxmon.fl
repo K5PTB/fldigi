@@ -1,8 +1,10 @@
 # data file for the Fltk User Interface Designer (fluid)
-version 1.0308
+version 1.0404
 i18n_type 1
-i18n_include "gettext.h"
-i18n_function _
+i18n_include {"gettext.h"}
+i18n_conditional {}
+i18n_gnu_function gettext
+i18n_gnu_static_function gettext_noop
 header_name {.h}
 code_name {.cxx}
 decl {\#include <config.h>} {private local
@@ -57,7 +59,7 @@ Function {make_rxaudio_dialog()} {open
 } {
   Fl_Window {} {
     label {Rx Audio Monitor} open
-    xywh {611 189 360 290} type Double visible
+    xywh {755 61 360 290} type Double visible
   } {
     Fl_Group {} {open
       xywh {5 4 350 50} box BORDER_FRAME color 0

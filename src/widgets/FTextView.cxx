@@ -479,11 +479,11 @@ void FTextBase::reset_styles(int set)
 // ----------------------------------------------------------------------------
 
 Fl_Menu_Item FTextView::menu[] = {
-	{ icons::make_icon_label(_("Copy"), edit_copy_icon), 0, 0, 0, 0, _FL_MULTI_LABEL },
-	{ icons::make_icon_label(_("Clear"), edit_clear_icon), 0, 0, 0, 0, _FL_MULTI_LABEL },
 	{ icons::make_icon_label(_("Select All"), edit_select_all_icon), 0, 0, 0, FL_MENU_DIVIDER, _FL_MULTI_LABEL },
+	{ icons::make_icon_label(_("Copy"), edit_copy_icon), 0, 0, 0, 0, _FL_MULTI_LABEL },
 	{ icons::make_icon_label(_("Save as..."), save_as_icon), 0, 0, 0, FL_MENU_DIVIDER, _FL_MULTI_LABEL },
-	{ _("Word wrap"),       0, 0, 0, FL_MENU_TOGGLE, FL_NORMAL_LABEL },
+	{ icons::make_icon_label(_("Clear"), edit_clear_icon), 0, 0, 0, FL_MENU_DIVIDER, _FL_MULTI_LABEL },
+	{ _("Word wrap"),       0, 0, 0, FL_MENU_TOGGLE | FL_MENU_DIVIDER, FL_NORMAL_LABEL },
 	{ 0 }
 };
 

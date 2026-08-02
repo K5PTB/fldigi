@@ -521,6 +521,7 @@ void Fl_ComboBox::add( const char *s, void * d)
 {
 	std::string str = s;
 	std::string sinsert;
+	if (str[str.length() - 1] == '|') str.erase(str.length() - 1, 1);
 	size_t p = str.find("|");
 	bool found = false;
 	bool last_one = false;

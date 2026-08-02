@@ -821,21 +821,26 @@ Export_log();}
       Fl_Button bNewSave {
         label New
         callback cb_btnNewSave
-        tooltip {New record / Save record} xywh {396 263 59 22} shortcut 0x8004e color 50 selection_color 48
+        tooltip {New record / Save record} xywh {348 263 59 22} shortcut 0x8004e color 50 selection_color 48
       }
       Fl_Button bUpdateCancel {
         label Update
         callback cb_btnUpdateCancel
-        tooltip {Update the current record} xywh {459 263 59 22} shortcut 0x80055 color 50 selection_color 48
+        tooltip {Update the current record} xywh {411 263 59 22} shortcut 0x80055 color 50 selection_color 48
       }
       Fl_Button bDelete {
         label Delete
         callback cb_btnDelete
-        tooltip {Delete the current record} xywh {522 263 59 22} shortcut 0x80044 color 50 selection_color 48
+        tooltip {Delete the current record} xywh {474 263 59 22} shortcut 0x80044 color 50 selection_color 48
+      }
+      Fl_Button bClearLogbook {
+        label Clear
+        callback cb_btnClearLogbook
+        tooltip {Clear all records from the current logbook} xywh {537 263 50 22} color 50 selection_color 48
       }
       Fl_Output txtLogFile {
         label {File:}
-        xywh {35 263 357 22} color 54
+        xywh {35 263 309 22} color 54
       }
     }
     Fl_Group wBrowser {open

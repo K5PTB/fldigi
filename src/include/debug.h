@@ -127,6 +127,13 @@ extern void btn_debug_source_cb(int n);
 extern void clear_debug();
 extern void set_debug_mask(int mask);
 
+#define P2F(str) p2f  ( __func__, (str) )
+
+extern std::string f2s(double d);
+extern std::string i2s(int d);
+extern void p2f ( std::string func, std::string comment );
+extern void reset_p2f();
+
 #endif // _DEBUG_H_
 
 // Local Variables:

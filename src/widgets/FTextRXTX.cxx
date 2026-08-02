@@ -130,10 +130,11 @@ private:
 
 		RX_MENU_DIV,
 
-		RX_MENU_COPY,
-		RX_MENU_CLEAR,
 		RX_MENU_SELECT_ALL,
+		RX_MENU_COPY,
 		RX_MENU_SAVE,
+		RX_MENU_CLEAR,
+
 		RX_MENU_WRAP,
 
 		RX_MENU_ALL_ENTRY,
@@ -187,10 +188,11 @@ Fl_Menu_Item FTextRX::menu[] = {
 
 	{ icons::make_icon_label(_("Insert marker"), insert_link_icon), 0, 0, 0, FL_MENU_DIVIDER, _FL_MULTI_LABEL },
 
-	{ 0 }, // VIEW_MENU_COPY
-	{ 0 }, // VIEW_MENU_CLEAR
 	{ 0 }, // VIEW_MENU_SELECT_ALL
+	{ 0 }, // VIEW_MENU_COPY
 	{ 0 }, // VIEW_MENU_SAVE
+	{ 0 }, // VIEW_MENU_CLEAR
+
 	{ 0 }, // VIEW_MENU_WRAP
 
 	{ _("All entries"),      0, 0, 0, FL_MENU_TOGGLE, FL_NORMAL_LABEL },
@@ -211,7 +213,7 @@ Fl_Menu_Item FTextRX::menu[] = {
 FTextRX::FTextRX(int x, int y, int w, int h, const char *l)
         : FTextView(x, y, w, h, l)
 {
-	memcpy(menu + RX_MENU_COPY, FTextView::menu, (FTextView::menu->size() - 1) * sizeof(*FTextView::menu));
+	memcpy(menu + RX_MENU_SELECT_ALL, FTextView::menu, (FTextView::menu->size() - 1) * sizeof(*FTextView::menu));
 	context_menu = menu;
 	init_context_menu();
 	menu[RX_MENU_ALL_ENTRY].clear();
@@ -448,6 +450,16 @@ void FTextRX::mark(FTextBase::TEXT_ATTR attr)
 
 void FTextRX::clear(void)
 {
+	FTextBase::clear();
+	s_text.clear();
+	s_style.clear();
+	static_cast<MVScrollbar*>(mVScrollBar)->clear();
+}
+
+void FTextRX::query_clear(void)
+{
+	if ( fl_choice2(_("Confirm Clear Text"), NULL, _("Yes"), _("No")) == 2)
+		return;
 	FTextBase::clear();
 	s_text.clear();
 	s_style.clear();
@@ -1227,6 +1239,7 @@ int FTextRX::handle_qso_data(int start, int end)
 					set_serno_in(str);
 					break;
 				}
+			case LOG_DARC_HELL_SPRINT:
 			case LOG_GENERIC:
 			default:
 			// EXCHANGE
@@ -1439,6 +1452,7 @@ void FTextRX::handle_context_menu(void)
 			show_item(RX_MENU_XCHG);
 			show_item(RX_MENU_RST_IN);
 			break;
+		case LOG_DARC_HELL_SPRINT:
 		case LOG_GENERIC:
 		default:
 			show_item(RX_MENU_SERIAL);
@@ -1522,7 +1536,7 @@ void FTextRX::menu_cb(size_t item)
 	if (s.empty()) {
 		switch (item) {
 			case RX_MENU_CLEAR:
-				clear();
+				query_clear();
 				break;
 			case RX_MENU_SELECT_ALL:
 				tbuf->select(0, tbuf->length());
@@ -1661,7 +1675,7 @@ void FTextRX::menu_cb(size_t item)
 			kf_copy(Fl::event_key(), this);
 			break;
 		case RX_MENU_CLEAR:
-			clear();
+			query_clear();
 			break;
 		case RX_MENU_SELECT_ALL:
 			tbuf->select(0, tbuf->length());

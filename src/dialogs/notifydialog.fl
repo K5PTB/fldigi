@@ -1,24 +1,26 @@
 # data file for the Fltk User Interface Designer (fluid)
-version 1.0300 
-i18n_type 1 
-i18n_include "gettext.h" 
-i18n_function _ 
-header_name {.h} 
+version 1.0404
+i18n_type 1
+i18n_include {"gettext.h"}
+i18n_conditional {}
+i18n_gnu_function gettext
+i18n_gnu_static_function gettext_noop
+header_name {.h}
 code_name {.cxx}
 decl {\#include <config.h>} {private local
-} 
+}
 
 decl {\#include "table.h"} {public global
-} 
+}
 
 decl {\#include "flinput2.h"} {public global
-} 
+}
 
 decl {\#include "flslider2.h"} {public global
-} 
+}
 
 decl {\#include "notify.h"} {private local
-} 
+}
 
 Function {make_notify_window()} {open
 } {
@@ -191,7 +193,7 @@ chkNotifyFilterCall->value(0);}
       class Table
     }
   }
-} 
+}
 
 Function {make_dxcc_window()} {open
 } {
@@ -226,4 +228,4 @@ Function {make_dxcc_window()} {open
       xywh {334 415 90 23}
     }
   }
-} 
+}

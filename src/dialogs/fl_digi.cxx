@@ -39,10 +39,15 @@
 
 #include <cstdlib>
 #include <cstdarg>
+#include <cctype>
+#include <cstdio>
 #include <string>
 #include <fstream>
 #include <algorithm>
 #include <map>
+#include <set>
+#include <sstream>
+#include <vector>
 
 #ifndef __WOE32__
 #include <sys/wait.h>
@@ -66,6 +71,8 @@ extern Fl_Scroll       *wefax_pic_rx_scroll;
 #include <FL/Fl_Progress.H>
 #include <FL/Fl_Tooltip.H>
 #include <FL/Fl_Tabs.H>
+#include <FL/Fl_Input.H>
+#include <FL/Fl_Output.H>
 #include <FL/Fl_Multiline_Input.H>
 #include <FL/Fl_Pack.H>
 
@@ -163,6 +170,7 @@ extern Fl_Scroll       *wefax_pic_rx_scroll;
 #include "locator.h"
 #include "notify.h"
 #include "strutil.h"
+#include "util.h"
 
 #include "test_signal.h"
 
@@ -273,6 +281,7 @@ Fl_Button			*btnDockMacro[48];
 Fl_Menu_Bar 		*mnu;
 
 Fl_Box				*tx_timer = (Fl_Box *)0;
+Fl_Light_Button		*btn_EnableVideo_ID = (Fl_Light_Button *)0;
 Fl_Light_Button		*btnAutoSpot = (Fl_Light_Button *)0;
 Fl_Light_Button		*btnTune = (Fl_Light_Button *)0;
 Fl_Light_Button		*btnRSID = (Fl_Light_Button *)0;
@@ -3127,6 +3136,10 @@ void cbAutoSpot(Fl_Widget* w, void*)
 	progStatus.spot_recv = static_cast<Fl_Light_Button*>(w)->value();
 }
 
+void cbEnableVideo_ID(Fl_Widget* w, void*)
+{	progStatus.EnableVideo_ID = static_cast<Fl_Light_Button*>(w)->value();
+}
+
 void toggleRSID()
 {
 	progdefaults.rsid = !progdefaults.rsid;
@@ -4499,6 +4512,10 @@ void cb_btnClearMViewer(Fl_Widget *w, void *d)
 	active_modem->clear_viewer();
 }
 
+#ifdef __APPLE__
+static int handle_macos_command_shortcut(int event);
+#endif
+
 int default_handler(int event)
 {
 	if (bWF_only) {
@@ -4506,6 +4523,15 @@ int default_handler(int event)
 			return 1;
 		return 0;
 	}
+
+	if (event != FL_SHORTCUT && event != FL_KEYBOARD)
+		return 0;
+
+	int key = Fl::event_key();
+#ifdef __APPLE__
+	if (handle_macos_command_shortcut(event))
+		return 1;
+#endif
 
 	if (event != FL_SHORTCUT)
 		return 0;
@@ -4518,7 +4544,6 @@ int default_handler(int event)
 
 	Fl_Widget* w = Fl::focus();
 
-	int key = Fl::event_key();
 	if ((key == FL_F + 4) && Fl::event_alt()) clean_exit(true);
 
 	if (fl_digi_main->contains(w)) {
@@ -4568,6 +4593,15 @@ int default_handler(int event)
 
 int wo_default_handler(int event)
 {
+	if (event != FL_SHORTCUT && event != FL_KEYBOARD)
+		return 0;
+
+	int key = Fl::event_key();
+#ifdef __APPLE__
+	if (handle_macos_command_shortcut(event))
+		return 1;
+#endif
+
 	if (event != FL_SHORTCUT)
 		return 0;
 
@@ -4578,7 +4612,6 @@ int wo_default_handler(int event)
 	}
 
 	Fl_Widget* w = Fl::focus();
-	int key = Fl::event_key();
 
 	if ((key == FL_F + 4) && Fl::event_alt()) clean_exit(true);
 
@@ -5593,6 +5626,7 @@ void UI_select(std::string parent)
 //				gWAE->show();
 //				break;
 			case LOG_BART:
+			case LOG_DARC_HELL_SPRINT:
 			case LOG_GENERIC:
 				gGEN_CONTEST->show();
 				break;
@@ -5869,6 +5903,7 @@ void UI_select(std::string parent)
 //				cboCountry = cboCountryWAE2;
 //				break;
 			case LOG_BART:
+			case LOG_DARC_HELL_SPRINT:
 			case LOG_GENERIC:
 			default:
 				log_generic_frame->show();
@@ -6182,6 +6217,1059 @@ void cb_48macros(Fl_Widget*, void*)
 }
 
 static void cb_opmode_show(Fl_Widget* w, void*);
+
+struct qtc_dialog_item {
+	std::string date;
+	std::string freq;
+	std::string mode;
+	std::string time;
+	std::string call;
+	std::string nr;
+	int log_index;
+
+	qtc_dialog_item() : log_index(-1) {}
+};
+
+static Fl_Double_Window *qtc_dialog = 0;
+static Fl_Input *qtc_partner = 0;
+static Fl_Input *qtc_series = 0;
+static Fl_Input *qtc_time[10] = { 0 };
+static Fl_Input *qtc_call[10] = { 0 };
+static Fl_Input *qtc_nr[10] = { 0 };
+static Fl_Button *qtc_tx_one[10] = { 0 };
+static int qtc_tx_one_index[10] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 };
+//static Fl_Multiline_Input *qtc_paste = 0;
+static Fl_Output *qtc_status = 0;
+static std::vector<qtc_dialog_item> qtc_loaded_items;
+static Fl_Double_Window *qtc_rx_dialog = 0;
+static Fl_Input *qtc_rx_partner = 0;
+static Fl_Input *qtc_rx_series = 0;
+static Fl_Input *qtc_rx_time[10] = { 0 };
+static Fl_Input *qtc_rx_call[10] = { 0 };
+static Fl_Input *qtc_rx_nr[10] = { 0 };
+static Fl_Output *qtc_rx_status = 0;
+static Fl_Double_Window *qtc_view_dialog = 0;
+static Fl_Browser *qtc_view_browser = 0;
+static Fl_Output *qtc_view_status = 0;
+static int qtc_next_tx_series = 0;
+static bool qtc_tx_pos_saved = false;
+static int qtc_tx_x = 0;
+static int qtc_tx_y = 0;
+static bool qtc_rx_pos_saved = false;
+static int qtc_rx_x = 0;
+static int qtc_rx_y = 0;
+
+static void qtc_remember_position(Fl_Double_Window *dlg, bool &saved, int &x, int &y)
+{
+	if (!dlg)
+		return;
+
+	x = dlg->x();
+	y = dlg->y();
+	saved = true;
+}
+
+static void qtc_position_for_show(Fl_Double_Window *dlg, bool saved, int x, int y)
+{
+	if (!dlg || dlg->visible())
+		return;
+
+	if (saved) {
+		dlg->position(x, y);
+		return;
+	}
+
+	if (!fl_digi_main)
+		return;
+
+	dlg->position(
+		fl_digi_main->x() + (fl_digi_main->w() - dlg->w()) / 2,
+		fl_digi_main->y() + (fl_digi_main->h() - dlg->h()) / 2);
+}
+
+static std::string qtc_trim(std::string s)
+{
+	while (!s.empty() && std::isspace(static_cast<unsigned char>(s[0])))
+		s.erase(0, 1);
+	while (!s.empty() && std::isspace(static_cast<unsigned char>(s[s.length() - 1])))
+		s.erase(s.length() - 1);
+	return s;
+}
+
+static std::string qtc_upper(std::string s)
+{
+	for (size_t i = 0; i < s.length(); i++)
+		s[i] = std::toupper(static_cast<unsigned char>(s[i]));
+	return s;
+}
+
+static std::string qtc_main_window_call()
+{
+	return qtc_upper(qtc_trim(inpCall && inpCall->value() ? inpCall->value() : ""));
+}
+
+static std::string qtc_state_file()
+{
+	std::string fn = LogsDir.empty() ? HomeDir : LogsDir;
+	if (!fn.empty() && *fn.rbegin() != PATH_SEP[0])
+		fn.append(PATH_SEP);
+	fn.append("qtc-sent.log");
+	return fn;
+}
+
+static std::string qtc_key(const qtc_dialog_item& q)
+{
+	return q.date + "|" + q.time + "|" + q.call + "|" + q.nr;
+}
+
+static std::set<std::string> qtc_read_sent_keys()
+{
+	std::set<std::string> keys;
+	std::ifstream in(qtc_state_file().c_str());
+	std::string line;
+	while (std::getline(in, line)) {
+		size_t tab = line.find('\t');
+		keys.insert(tab == std::string::npos ? line : line.substr(0, tab));
+	}
+	return keys;
+}
+
+static bool qtc_parse_series_number(const std::string& s, int& nr)
+{
+	std::string series = qtc_trim(s);
+	size_t slash = series.find('/');
+	if (slash == std::string::npos || slash == 0)
+		return false;
+	std::string first = series.substr(0, slash);
+	for (size_t i = 0; i < first.length(); i++)
+		if (!std::isdigit(static_cast<unsigned char>(first[i])))
+			return false;
+	nr = atoi(first.c_str());
+	return nr > 0;
+}
+
+static std::string qtc_traffic_file();
+
+static int qtc_next_tx_series_number()
+{
+	if (qtc_next_tx_series > 0)
+		return qtc_next_tx_series;
+
+	int highest = 0;
+	std::ifstream in(qtc_state_file().c_str());
+	std::string line;
+	while (std::getline(in, line)) {
+		std::istringstream ls(line);
+		std::vector<std::string> fields;
+		std::string tok;
+		while (std::getline(ls, tok, '\t'))
+			fields.push_back(tok);
+		if (fields.size() < 3)
+			continue;
+		int nr = 0;
+		if (qtc_parse_series_number(fields[2], nr) && nr > highest)
+			highest = nr;
+	}
+
+	std::ifstream traffic(qtc_traffic_file().c_str());
+	while (std::getline(traffic, line)) {
+		if (line.empty() || line[0] == '#')
+			continue;
+		std::istringstream ls(line);
+		std::vector<std::string> fields;
+		std::string tok;
+		while (std::getline(ls, tok, '\t'))
+			fields.push_back(tok);
+		if (fields.size() < 7 || qtc_upper(qtc_trim(fields[0])) != "TX")
+			continue;
+		int nr = 0;
+		if (qtc_parse_series_number(fields[6], nr) && nr > highest)
+			highest = nr;
+	}
+
+	qtc_next_tx_series = highest + 1;
+	if (qtc_next_tx_series < 1)
+		qtc_next_tx_series = 1;
+	return qtc_next_tx_series;
+}
+
+static void qtc_remember_tx_series()
+{
+	int nr = 0;
+	std::string series = qtc_series && qtc_series->value() ? qtc_series->value() : "";
+	if (qtc_parse_series_number(series, nr) && nr >= qtc_next_tx_series_number())
+		qtc_next_tx_series = nr + 1;
+}
+
+static std::string qtc_traffic_file()
+{
+	std::string fn = LogsDir.empty() ? HomeDir : LogsDir;
+	if (!fn.empty() && *fn.rbegin() != PATH_SEP[0])
+		fn.append(PATH_SEP);
+	fn.append("qtc-log.tsv");
+	return fn;
+}
+
+static std::string qtc_backup_stamp()
+{
+	std::string stamp = zdate();
+	stamp.append("-");
+	std::string raw_time = ztime();
+	for (size_t i = 0; i < raw_time.length(); i++)
+		if (std::isdigit(static_cast<unsigned char>(raw_time[i])))
+			stamp += raw_time[i];
+	return stamp;
+}
+
+static bool qtc_backup_and_reset_file(const std::string& path, const std::string& stamp)
+{
+	std::ifstream in(path.c_str());
+	bool exists = in.good();
+	in.close();
+
+	if (exists) {
+		std::string backup = path + "." + stamp + ".bak";
+		if (rename(path.c_str(), backup.c_str()) != 0)
+			return false;
+	}
+
+	std::ofstream out(path.c_str(), std::ios::trunc);
+	return static_cast<bool>(out);
+}
+
+static std::string qtc_current_freq_khz()
+{
+	const char *v = inpFreq && inpFreq->value() ? inpFreq->value() : "";
+	int khz = static_cast<int>(atof(v) + 0.5);
+	std::ostringstream ss;
+	ss << khz;
+	return ss.str();
+}
+
+static std::string qtc_current_mode()
+{
+	std::string mode = active_modem ? mode_info[active_modem->get_mode()].export_mode : "";
+	if (mode == "USB" || mode == "LSB" || mode == "FM" || mode == "SSB" || mode == "PH")
+		return "PH";
+	if (mode == "RTTY")
+		return "RY";
+	return mode.empty() ? "DIGI" : mode;
+}
+
+static std::string qtc_log_freq_khz(cQsoRec *rec)
+{
+	std::string freq = qtc_trim(rec->getField(FREQ));
+	if (freq.empty())
+		return qtc_current_freq_khz();
+
+	int khz = static_cast<int>(1000.0 * atof(freq.c_str()) + 0.5);
+	std::ostringstream ss;
+	ss << khz;
+	return ss.str();
+}
+
+static std::string qtc_log_mode(cQsoRec *rec)
+{
+	std::string mode = qtc_upper(qtc_trim(rec->getField(ADIF_MODE)));
+	return mode.empty() ? qtc_current_mode() : mode;
+}
+
+static std::string qtc_item_label(const qtc_dialog_item& q)
+{
+	std::string label = q.time;
+	if (!label.empty()) label.append(" ");
+	label.append(q.call);
+	if (!q.nr.empty()) label.append(" #").append(q.nr);
+	return label;
+}
+
+static bool qtc_sent_conflict(const std::vector<qtc_dialog_item>& items, std::string& label)
+{
+	std::set<std::string> sent = qtc_read_sent_keys();
+	for (size_t i = 0; i < items.size(); i++) {
+		if (sent.find(qtc_key(items[i])) != sent.end()) {
+			label = qtc_item_label(items[i]);
+			return true;
+		}
+	}
+	return false;
+}
+
+static std::string qtc_traffic_key(
+	const std::string& direction,
+	const std::string& received_by,
+	const std::string& group,
+	const std::string& sent_by,
+	const qtc_dialog_item& q)
+{
+	return direction + "|" + received_by + "|" + group + "|" + sent_by + "|" +
+		q.time + "|" + q.call + "|" + q.nr;
+}
+
+static std::set<std::string> qtc_read_traffic_keys()
+{
+	std::set<std::string> keys;
+	std::ifstream in(qtc_traffic_file().c_str());
+	std::string line;
+	while (std::getline(in, line)) {
+		if (line.empty() || line[0] == '#')
+			continue;
+		std::istringstream ls(line);
+		std::vector<std::string> f;
+		std::string tok;
+		while (std::getline(ls, tok, '\t'))
+			f.push_back(tok);
+		if (f.size() >= 11)
+			keys.insert(f[0] + "|" + f[5] + "|" + f[6] + "|" + f[7] + "|" +
+				f[8] + "|" + f[9] + "|" + f[10]);
+	}
+	return keys;
+}
+
+static bool qtc_write_traffic_for(
+	const std::vector<qtc_dialog_item>& items,
+	const std::string& direction,
+	const std::string& partner,
+	const std::string& series)
+{
+	std::string mycall = qtc_upper(qtc_trim(progdefaults.myCall));
+	std::string date = zdate();
+	std::string time;
+	std::string raw_time = ztime();
+	for (size_t i = 0; i < raw_time.length(); i++)
+		if (std::isdigit(static_cast<unsigned char>(raw_time[i])))
+			time += raw_time[i];
+	if (time.length() > 4)
+		time.erase(4);
+	std::string received_by = direction == "TX" ? partner : mycall;
+	std::string sent_by = direction == "TX" ? mycall : partner;
+
+	std::set<std::string> keys = qtc_read_traffic_keys();
+	std::ofstream out(qtc_traffic_file().c_str(), std::ios::app);
+	if (!out)
+		return false;
+
+	for (size_t i = 0; i < items.size(); i++) {
+		std::string key = qtc_traffic_key(direction, received_by, series, sent_by, items[i]);
+		if (keys.find(key) != keys.end())
+			continue;
+		out << direction << "\t"
+			<< (items[i].freq.empty() ? qtc_current_freq_khz() : items[i].freq) << "\t"
+			<< (items[i].mode.empty() ? qtc_current_mode() : items[i].mode) << "\t"
+			<< date << "\t"
+			<< time << "\t"
+			<< received_by << "\t"
+			<< series << "\t"
+			<< sent_by << "\t"
+			<< items[i].time << "\t"
+			<< qtc_upper(items[i].call) << "\t"
+			<< items[i].nr << "\n";
+		keys.insert(key);
+	}
+	return true;
+}
+
+static bool qtc_write_traffic(const std::vector<qtc_dialog_item>& items, const std::string& direction)
+{
+	std::string partner = qtc_upper(qtc_trim(qtc_partner && qtc_partner->value() ? qtc_partner->value() : ""));
+	std::string series = qtc_trim(qtc_series && qtc_series->value() ? qtc_series->value() : "");
+	return qtc_write_traffic_for(items, direction, partner, series);
+}
+
+static bool qtc_write_sent(const std::vector<qtc_dialog_item>& items)
+{
+	std::set<std::string> sent = qtc_read_sent_keys();
+	std::ofstream out(qtc_state_file().c_str(), std::ios::app);
+	if (!out)
+		return false;
+
+	std::string partner = qtc_upper(qtc_trim(qtc_partner && qtc_partner->value() ? qtc_partner->value() : ""));
+	std::string series = qtc_trim(qtc_series && qtc_series->value() ? qtc_series->value() : "");
+	for (size_t i = 0; i < items.size(); i++) {
+		std::string key = qtc_key(items[i]);
+		if (sent.find(key) == sent.end()) {
+			out << key << "\t" << partner << "\t" << series << "\n";
+			sent.insert(key);
+		}
+	}
+	qtc_remember_tx_series();
+	return true;
+}
+
+static void qtc_status_text(const std::string& s)
+{
+	if (qtc_status) {
+		qtc_status->value(s.c_str());
+		qtc_status->redraw();
+	}
+}
+
+static void qtc_rx_status_text(const std::string& s)
+{
+	if (qtc_rx_status) {
+		qtc_rx_status->value(s.c_str());
+		qtc_rx_status->redraw();
+	}
+}
+
+static void qtc_clear_rows()
+{
+	qtc_loaded_items.clear();
+	for (int i = 0; i < 10; i++) {
+		if (qtc_time[i]) qtc_time[i]->value("");
+		if (qtc_call[i]) qtc_call[i]->value("");
+		if (qtc_nr[i]) qtc_nr[i]->value("");
+		if (qtc_tx_one[i]) qtc_tx_one[i]->hide();
+	}
+}
+
+static void qtc_rx_clear_rows()
+{
+	for (int i = 0; i < 10; i++) {
+		if (qtc_rx_time[i]) qtc_rx_time[i]->value("");
+		if (qtc_rx_call[i]) qtc_rx_call[i]->value("");
+		if (qtc_rx_nr[i]) qtc_rx_nr[i]->value("");
+	}
+}
+
+static void qtc_fill_rows(const std::vector<qtc_dialog_item>& items)
+{
+	qtc_clear_rows();
+	qtc_loaded_items = items;
+	for (size_t i = 0; i < items.size() && i < 10; i++) {
+		qtc_time[i]->value(items[i].time.c_str());
+		qtc_call[i]->value(items[i].call.c_str());
+		qtc_nr[i]->value(items[i].nr.c_str());
+		if (qtc_tx_one[i]) {
+			qtc_tx_one[i]->activate();
+			qtc_tx_one[i]->show();
+		}
+	}
+	std::ostringstream ss;
+	ss << items.size() << " QTC entries ready";
+	qtc_status_text(ss.str());
+}
+
+static std::string qtc_normalize_time(std::string s)
+{
+	std::string out;
+	for (size_t i = 0; i < s.length(); i++)
+		if (std::isdigit(static_cast<unsigned char>(s[i])))
+			out += s[i];
+	if (out.length() >= 4)
+		out.erase(4);
+	return out;
+}
+
+static bool qtc_looks_like_call(const std::string& s)
+{
+	bool has_alpha = false;
+	bool has_digit = false;
+	for (size_t i = 0; i < s.length(); i++) {
+		unsigned char c = static_cast<unsigned char>(s[i]);
+		if (std::isalpha(c)) has_alpha = true;
+		else if (std::isdigit(c)) has_digit = true;
+		else if (s[i] != '/' && s[i] != '-') return false;
+	}
+	return has_alpha && has_digit;
+}
+
+static std::vector<qtc_dialog_item> qtc_collect_rows()
+{
+	std::vector<qtc_dialog_item> items;
+	for (int i = 0; i < 10; i++) {
+		qtc_dialog_item q;
+		if (i < static_cast<int>(qtc_loaded_items.size())) {
+			q.date = qtc_loaded_items[i].date;
+			q.freq = qtc_loaded_items[i].freq;
+			q.mode = qtc_loaded_items[i].mode;
+			q.log_index = qtc_loaded_items[i].log_index;
+		}
+		q.time = qtc_normalize_time(qtc_time[i]->value() ? qtc_time[i]->value() : "");
+		q.call = qtc_upper(qtc_trim(qtc_call[i]->value() ? qtc_call[i]->value() : ""));
+		q.nr = qtc_trim(qtc_nr[i]->value() ? qtc_nr[i]->value() : "");
+		if (!q.time.empty() || !q.call.empty() || !q.nr.empty())
+			items.push_back(q);
+	}
+	return items;
+}
+
+static std::vector<qtc_dialog_item> qtc_rx_collect_rows()
+{
+	std::vector<qtc_dialog_item> items;
+	for (int i = 0; i < 10; i++) {
+		qtc_dialog_item q;
+		q.time = qtc_normalize_time(qtc_rx_time[i]->value() ? qtc_rx_time[i]->value() : "");
+		q.call = qtc_upper(qtc_trim(qtc_rx_call[i]->value() ? qtc_rx_call[i]->value() : ""));
+		q.nr = qtc_trim(qtc_rx_nr[i]->value() ? qtc_rx_nr[i]->value() : "");
+		if (!q.time.empty() || !q.call.empty() || !q.nr.empty())
+			items.push_back(q);
+	}
+	return items;
+}
+
+static bool qtc_validate_rows(const std::vector<qtc_dialog_item>& items, std::string& reason)
+{
+	if (items.empty()) {
+		reason = "No QTC rows";
+		return false;
+	}
+	if (items.size() > 10) {
+		std::ostringstream ss;
+		ss << "Too many QTC rows, found " << items.size();
+		reason = ss.str();
+		return false;
+	}
+	for (size_t i = 0; i < items.size(); i++) {
+		if (items[i].time.length() != 4 || !qtc_looks_like_call(items[i].call) || items[i].nr.empty()) {
+			std::ostringstream ss;
+			ss << "Incomplete QTC row " << (i + 1);
+			reason = ss.str();
+			return false;
+		}
+	}
+	return true;
+}
+
+static bool qtc_collect_one_row(int row, qtc_dialog_item& q)
+{
+	if (row < 0 || row >= 10)
+		return false;
+	if (row < static_cast<int>(qtc_loaded_items.size())) {
+		q.date = qtc_loaded_items[row].date;
+		q.freq = qtc_loaded_items[row].freq;
+		q.mode = qtc_loaded_items[row].mode;
+		q.log_index = qtc_loaded_items[row].log_index;
+	}
+	q.time = qtc_normalize_time(qtc_time[row]->value() ? qtc_time[row]->value() : "");
+	q.call = qtc_upper(qtc_trim(qtc_call[row]->value() ? qtc_call[row]->value() : ""));
+	q.nr = qtc_trim(qtc_nr[row]->value() ? qtc_nr[row]->value() : "");
+	return !q.time.empty() || !q.call.empty() || !q.nr.empty();
+}
+
+static void qtc_update_default_series(size_t n, bool force = false)
+{
+	if (!qtc_series) return;
+	std::string cur = qtc_trim(qtc_series->value() ? qtc_series->value() : "");
+	int cur_nr = 0;
+	bool parsed_series = qtc_parse_series_number(cur, cur_nr);
+	int next_series = qtc_next_tx_series_number();
+	bool auto_series = parsed_series && (cur_nr == 1 || cur_nr < next_series);
+	if (force || cur.empty() || auto_series) {
+		std::ostringstream ss;
+		ss << next_series << "/" << n;
+		qtc_series->value(ss.str().c_str());
+	}
+}
+
+static void qtc_load_from_log_cb(Fl_Widget*, void*)
+{
+	std::string partner = qtc_upper(qtc_trim(qtc_partner && qtc_partner->value() ? qtc_partner->value() : ""));
+	std::set<std::string> sent = qtc_read_sent_keys();
+	std::vector<qtc_dialog_item> items;
+
+	for (int i = 0; i < qsodb.nbrRecs() && items.size() < 10; i++) {
+		cQsoRec *rec = qsodb.getRec(i);
+		qtc_dialog_item q;
+		q.date = qtc_trim(rec->getField(QSO_DATE));
+		q.freq = qtc_log_freq_khz(rec);
+		q.mode = qtc_log_mode(rec);
+		q.time = qtc_normalize_time(rec->getField(TIME_ON));
+		q.call = qtc_upper(qtc_trim(rec->getField(CALL)));
+		q.nr = qtc_trim(rec->getField(SRX));
+		if (q.nr.empty()) q.nr = qtc_trim(rec->getField(STX));
+		if (q.nr.empty()) q.nr = qtc_trim(rec->getField(XCHG1));
+		q.log_index = i;
+		if (q.time.empty() || q.call.empty() || q.nr.empty())
+			continue;
+		if (!partner.empty() && q.call == partner)
+			continue;
+		if (sent.find(qtc_key(q)) != sent.end())
+			continue;
+		items.push_back(q);
+	}
+
+	qtc_fill_rows(items);
+	qtc_next_tx_series = 0;
+	qtc_update_default_series(items.size(), true);
+}
+
+static std::string qtc_make_text(const std::vector<qtc_dialog_item>& items)
+{
+	std::ostringstream out;
+	std::string partner = qtc_upper(qtc_trim(qtc_partner && qtc_partner->value() ? qtc_partner->value() : ""));
+	std::string series = qtc_trim(qtc_series && qtc_series->value() ? qtc_series->value() : "");
+	if (series.empty()) {
+		std::ostringstream ss;
+		ss << items.size();
+		series = ss.str();
+	}
+	if (!partner.empty())
+		out << partner << " " << partner << " ";
+	out << "Series: " << series << " " << series << "\n";
+	for (size_t i = 0; i < items.size(); i++)
+		out << items[i].time << " " << qtc_upper(items[i].call) << " " << items[i].nr << "\n";
+	out << "All QSL?\n^r";
+	return out.str();
+}
+
+static std::string qtc_make_one_text(const qtc_dialog_item& item)
+{
+	std::ostringstream out;
+	out << item.time << " " << qtc_upper(item.call) << " " << item.nr << "\n^r";
+	return out.str();
+}
+
+/*
+static void qtc_add_to_tx_cb(Fl_Widget*, void*)
+{
+	std::vector<qtc_dialog_item> items = qtc_collect_rows();
+	std::string reason;
+	if (!qtc_validate_rows(items, reason)) {
+		qtc_status_text(reason);
+		return;
+	}
+	std::string sent_label;
+	if (qtc_sent_conflict(items, sent_label)) {
+		qtc_status_text("Already sent: " + sent_label);
+		return;
+	}
+	TransmitText->add_text(qtc_make_text(items));
+	qtc_status_text("QTC text added to TX pane");
+}
+*/
+
+static void qtc_mark_sent_cb(Fl_Widget*, void*)
+{
+	std::vector<qtc_dialog_item> items = qtc_collect_rows();
+	std::string reason;
+	if (!qtc_validate_rows(items, reason)) {
+		qtc_status_text(reason);
+		return;
+	}
+	if (!qtc_write_sent(items)) {
+		qtc_status_text("Could not open qtc-sent.log");
+		return;
+	}
+	if (!qtc_write_traffic(items, "TX")) {
+		qtc_status_text("Could not open qtc-log.tsv");
+		return;
+	}
+	qtc_status_text("Marked QTC rows as sent");
+}
+
+/*
+static void qtc_mark_rx_cb(Fl_Widget*, void*)
+{
+	std::vector<qtc_dialog_item> items = qtc_collect_rows();
+	std::string reason;
+	if (!qtc_validate_rows(items, reason)) {
+		qtc_status_text(reason);
+		return;
+	}
+	if (!qtc_write_traffic(items, "RX")) {
+		qtc_status_text("Could not open qtc-log.tsv");
+		return;
+	}
+	std::ostringstream ss;
+	ss << items.size() << " RX QTCs logged";
+	qtc_status_text(ss.str());
+}
+*/
+
+static void qtc_send_series(bool allow_resend)
+{
+	std::vector<qtc_dialog_item> items = qtc_collect_rows();
+	std::string reason;
+	if (!qtc_validate_rows(items, reason)) {
+		qtc_status_text(reason);
+		return;
+	}
+	std::string sent_label;
+	if (!allow_resend && qtc_sent_conflict(items, sent_label)) {
+		qtc_status_text("Already sent: " + sent_label);
+		return;
+	}
+	if (!active_modem || !(active_modem->get_cap() & modem::CAP_TX)) {
+		qtc_status_text("Current mode cannot transmit");
+		return;
+	}
+
+	TransmitText->clear();
+	TransmitText->add_text(qtc_make_text(items));
+	if (!qtc_write_sent(items)) {
+		qtc_status_text("Could not open qtc-sent.log");
+		return;
+	}
+	if (!qtc_write_traffic(items, "TX")) {
+		qtc_status_text("Could not open qtc-log.tsv");
+		return;
+	}
+	start_tx();
+	std::ostringstream ss;
+	ss << items.size() << (allow_resend ? " QTCs resent" : " QTCs sent and marked");
+	qtc_status_text(ss.str());
+}
+
+static void qtc_send_one_cb(Fl_Widget*, void *d)
+{
+	int row = d ? *static_cast<int *>(d) : -1;
+	qtc_dialog_item item;
+	if (!qtc_collect_one_row(row, item)) {
+		qtc_status_text("No QTC row");
+		return;
+	}
+	std::vector<qtc_dialog_item> items;
+	items.push_back(item);
+	std::string reason;
+	if (!qtc_validate_rows(items, reason)) {
+		qtc_status_text(reason);
+		return;
+	}
+	if (!active_modem || !(active_modem->get_cap() & modem::CAP_TX)) {
+		qtc_status_text("Current mode cannot transmit");
+		return;
+	}
+
+	TransmitText->clear();
+	TransmitText->add_text(qtc_make_one_text(item));
+	if (!qtc_write_sent(items)) {
+		qtc_status_text("Could not open qtc-sent.log");
+		return;
+	}
+	if (!qtc_write_traffic(items, "TX")) {
+		qtc_status_text("Could not open qtc-log.tsv");
+		return;
+	}
+	start_tx();
+	std::ostringstream ss;
+	ss << "QTC row " << (row + 1) << " sent";
+	qtc_status_text(ss.str());
+}
+
+static void qtc_send_cb(Fl_Widget*, void*)
+{
+	qtc_send_series(false);
+}
+
+static void qtc_resend_cb(Fl_Widget*, void*)
+{
+	qtc_send_series(true);
+}
+
+/*
+static void qtc_parse_paste_cb(Fl_Widget*, void*)
+{
+	std::vector<qtc_dialog_item> items;
+	std::istringstream in(qtc_paste && qtc_paste->value() ? qtc_paste->value() : "");
+	std::string line;
+	while (std::getline(in, line) && items.size() < 10) {
+		line = qtc_trim(line);
+		if (line.empty()) continue;
+
+		std::istringstream ls(line);
+		std::vector<std::string> tok;
+		std::string t;
+		while (ls >> t) tok.push_back(t);
+		if (tok.empty()) continue;
+
+		if (qtc_upper(tok[0]) == "QTC") {
+			if (tok.size() > 1 && qtc_series)
+				qtc_series->value(tok[1].c_str());
+			continue;
+		}
+
+		size_t p = 0;
+		if (tok.size() >= 4 && qtc_normalize_time(tok[0]).length() < 4)
+			p = 1;
+		if (tok.size() < p + 3)
+			continue;
+
+		qtc_dialog_item q;
+		q.time = qtc_normalize_time(tok[p]);
+		q.call = qtc_upper(qtc_trim(tok[p + 1]));
+		q.nr = qtc_trim(tok[p + 2]);
+		if (q.time.length() == 4 && qtc_looks_like_call(q.call) && !q.nr.empty())
+			items.push_back(q);
+	}
+	qtc_fill_rows(items);
+}
+*/
+
+static void qtc_close_cb(Fl_Widget*, void*)
+{
+	qtc_remember_position(qtc_dialog, qtc_tx_pos_saved, qtc_tx_x, qtc_tx_y);
+	qtc_clear_rows();
+	if (qtc_series) qtc_series->value("");
+	if (qtc_partner) qtc_partner->value("");
+	if (qtc_dialog) qtc_dialog->hide();
+}
+
+static void qtc_make_dialog()
+{
+	if (qtc_dialog) return;
+
+	qtc_dialog = new Fl_Double_Window(650, 500, _("QTC Manager TX"));
+	qtc_dialog->callback(qtc_close_cb);
+	qtc_dialog->begin();
+
+	qtc_partner = new Fl_Input(90, 15, 140, 24, _("To Call"));
+	qtc_partner->tooltip(_("Station receiving or sending the QTC series"));
+	qtc_series = new Fl_Input(320, 15, 80, 24, _("Series"));
+	qtc_series->tooltip(_("Series identifier, for example 1/10"));
+
+	Fl_Button *load = new Fl_Button(505, 14, 130, 26, _("Load from Log"));
+	load->callback(qtc_load_from_log_cb);
+	Fl_Button *clear = new Fl_Button(505, 44, 130, 26, _("Clear All"));
+	clear->callback([](Fl_Widget*, void*) {
+		qtc_clear_rows();
+		if (qtc_series) qtc_series->value("");
+		qtc_status_text("Rows cleared");
+	});
+
+	int y = 82;
+	Fl_Box *qtc_hdr_idx = new Fl_Box(15, y, 35, 18, _("QTC-#"));
+	qtc_hdr_idx->align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE);
+	Fl_Box *qtc_hdr_time = new Fl_Box(60, y, 80, 18, _("Time"));
+	qtc_hdr_time->align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE);
+	Fl_Box *qtc_hdr_call = new Fl_Box(150, y, 190, 18, _("QTC-Call"));
+	qtc_hdr_call->align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE);
+	Fl_Box *qtc_hdr_nr = new Fl_Box(350, y, 100, 18, _("Serial-#"));
+	qtc_hdr_nr->align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE);
+	Fl_Box *qtc_hdr_tx = new Fl_Box(465, y, 80, 18, _("TX"));
+	qtc_hdr_tx->align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE);
+	y += 24;
+
+	for (int i = 0; i < 10; i++) {
+		char nr[8];
+		snprintf(nr, sizeof(nr), "%d", i + 1);
+		Fl_Box *idx = new Fl_Box(15, y, 35, 24);
+		idx->copy_label(nr);
+		idx->align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE);
+		qtc_time[i] = new Fl_Input(60, y, 80, 24);
+		qtc_call[i] = new Fl_Input(150, y, 190, 24);
+		qtc_nr[i] = new Fl_Input(350, y, 100, 24);
+		qtc_tx_one[i] = new Fl_Button(465, y, 80, 24, _("TX QTC"));
+		qtc_tx_one[i]->callback(qtc_send_one_cb, &qtc_tx_one_index[i]);
+		qtc_tx_one[i]->hide();
+		y += 28;
+	}
+
+	Fl_Button *send = new Fl_Button(15, 410, 130, 28, _("Send all QTC"));
+	send->callback(qtc_send_cb);
+	Fl_Button *resend = new Fl_Button(155, 410, 130, 28, _("Resent all QTCs"));
+	resend->callback(qtc_resend_cb);
+	Fl_Button *mark = new Fl_Button(295, 410, 130, 28, _("Mark sent"));
+	mark->callback(qtc_mark_sent_cb);
+	Fl_Button *close = new Fl_Button(540, 410, 95, 28, _("Close"));
+	close->callback(qtc_close_cb);
+
+	qtc_status = new Fl_Output(15, 455, 620, 24);
+	qtc_status->value(_("Ready"));
+
+	qtc_dialog->end();
+}
+
+static void cb_mnuQTC(Fl_Menu_*, void*)
+{
+	qtc_make_dialog();
+	if (qtc_partner) qtc_partner->value(qtc_main_window_call().c_str());
+	qtc_position_for_show(qtc_dialog, qtc_tx_pos_saved, qtc_tx_x, qtc_tx_y);
+	qtc_dialog->show();
+}
+
+static void qtc_rx_save_cb(Fl_Widget*, void*)
+{
+	std::vector<qtc_dialog_item> items = qtc_rx_collect_rows();
+	std::string reason;
+	if (!qtc_validate_rows(items, reason)) {
+		qtc_rx_status_text(reason);
+		return;
+	}
+
+	std::string partner = qtc_upper(qtc_trim(qtc_rx_partner && qtc_rx_partner->value() ? qtc_rx_partner->value() : ""));
+	std::string series = qtc_trim(qtc_rx_series && qtc_rx_series->value() ? qtc_rx_series->value() : "");
+	if (!qtc_write_traffic_for(items, "RX", partner, series)) {
+		qtc_rx_status_text("Could not open qtc-log.tsv");
+		return;
+	}
+
+	std::ostringstream ss;
+	ss << items.size() << " RX QTCs saved";
+	qtc_rx_status_text(ss.str());
+}
+
+static void qtc_rx_close_cb(Fl_Widget*, void*)
+{
+	qtc_remember_position(qtc_rx_dialog, qtc_rx_pos_saved, qtc_rx_x, qtc_rx_y);
+	qtc_rx_clear_rows();
+	if (qtc_rx_series) qtc_rx_series->value("");
+	if (qtc_rx_partner) qtc_rx_partner->value("");
+	if (qtc_rx_dialog) qtc_rx_dialog->hide();
+}
+
+static void qtc_view_refresh()
+{
+	if (!qtc_view_browser)
+		return;
+	qtc_view_browser->clear();
+	qtc_view_browser->add("Dir Date     Time Freq     Mode Station      QTC-Series QTC by       QTC Time QTC-Call       QTC-Serial");
+	qtc_view_browser->add("--- -------- ---- -------- ---- ------------ ---------- ------------ -------- -------------- ----------");
+
+	std::ifstream in(qtc_traffic_file().c_str());
+	if (!in) {
+		if (qtc_view_status) qtc_view_status->value("No QTC log found");
+		return;
+	}
+
+	int count = 0;
+	std::string line;
+	while (std::getline(in, line)) {
+		if (line.empty() || line[0] == '#')
+			continue;
+		std::istringstream ls(line);
+		std::vector<std::string> f;
+		std::string tok;
+		while (std::getline(ls, tok, '\t'))
+			f.push_back(tok);
+		if (f.size() < 11)
+			continue;
+
+		char row[512];
+		snprintf(row, sizeof(row), "%-3.3s %-8.8s %-4.4s %-8.8s %-4.4s %-12.12s %-10.10s %-12.12s %-8.8s %-14.14s %-10.10s",
+			f[0].c_str(), f[3].c_str(), f[4].c_str(), f[1].c_str(), f[2].c_str(),
+			f[5].c_str(), f[6].c_str(), f[7].c_str(), f[8].c_str(), f[9].c_str(),
+			f[10].c_str());
+		qtc_view_browser->add(row);
+		count++;
+	}
+
+	std::ostringstream ss;
+	ss << count << " QTC entries";
+	if (qtc_view_status) qtc_view_status->value(ss.str().c_str());
+}
+
+static void qtc_view_refresh_cb(Fl_Widget*, void*)
+{
+	qtc_view_refresh();
+}
+
+static void qtc_view_close_cb(Fl_Widget*, void*)
+{
+	if (qtc_view_dialog) qtc_view_dialog->hide();
+}
+
+static void qtc_make_view_dialog()
+{
+	if (qtc_view_dialog) return;
+
+	qtc_view_dialog = new Fl_Double_Window(920, 460, _("View QTCs"));
+	qtc_view_dialog->begin();
+
+	qtc_view_browser = new Fl_Browser(10, 10, 900, 365);
+	qtc_view_browser->textfont(FL_COURIER);
+	qtc_view_browser->textsize(12);
+
+	Fl_Button *refresh = new Fl_Button(10, 392, 110, 28, _("Refresh"));
+	refresh->callback(qtc_view_refresh_cb);
+	Fl_Button *close = new Fl_Button(800, 392, 110, 28, _("Close"));
+	close->callback(qtc_view_close_cb);
+	qtc_view_status = new Fl_Output(10, 430, 900, 24);
+	qtc_view_status->value(_("Ready"));
+
+	qtc_view_dialog->end();
+}
+
+static void qtc_make_rx_dialog()
+{
+	if (qtc_rx_dialog) return;
+
+	qtc_rx_dialog = new Fl_Double_Window(650, 500, _("QTC Manager RX"));
+	qtc_rx_dialog->callback(qtc_rx_close_cb);
+	qtc_rx_dialog->begin();
+
+	qtc_rx_partner = new Fl_Input(90, 15, 140, 24, _("From Call"));
+	qtc_rx_partner->tooltip(_("Station sending the QTC series"));
+	qtc_rx_series = new Fl_Input(320, 15, 80, 24, _("Series"));
+	qtc_rx_series->tooltip(_("Series identifier, for example 1/10"));
+
+	int y = 58;
+	Fl_Box *qtc_hdr_idx = new Fl_Box(15, y, 35, 18, _("QTC-#"));
+	qtc_hdr_idx->align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE);
+	Fl_Box *qtc_hdr_time = new Fl_Box(60, y, 80, 18, _("Time"));
+	qtc_hdr_time->align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE);
+	Fl_Box *qtc_hdr_call = new Fl_Box(150, y, 190, 18, _("QTC-Call"));
+	qtc_hdr_call->align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE);
+	Fl_Box *qtc_hdr_nr = new Fl_Box(350, y, 100, 18, _("Serial-#"));
+	qtc_hdr_nr->align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE);
+	y += 24;
+
+	for (int i = 0; i < 10; i++) {
+		char nr[8];
+		snprintf(nr, sizeof(nr), "%d", i + 1);
+		Fl_Box *idx = new Fl_Box(15, y, 35, 24);
+		idx->copy_label(nr);
+		idx->align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE);
+		qtc_rx_time[i] = new Fl_Input(60, y, 80, 24);
+		qtc_rx_call[i] = new Fl_Input(150, y, 190, 24);
+		qtc_rx_nr[i] = new Fl_Input(350, y, 100, 24);
+		y += 28;
+	}
+
+	Fl_Button *save = new Fl_Button(15, 370, 130, 28, _("Save"));
+	save->callback(qtc_rx_save_cb);
+	Fl_Button *clear = new Fl_Button(155, 370, 95, 28, _("Clear"));
+	clear->callback([](Fl_Widget*, void*) {
+		qtc_rx_clear_rows();
+		if (qtc_rx_series) qtc_rx_series->value("");
+		qtc_rx_status_text("Rows cleared");
+	});
+	Fl_Button *close = new Fl_Button(525, 370, 95, 28, _("Close"));
+	close->callback(qtc_rx_close_cb);
+
+	qtc_rx_status = new Fl_Output(15, 420, 605, 24);
+	qtc_rx_status->value(_("Ready"));
+
+	qtc_rx_dialog->end();
+}
+
+static void cb_mnuQTCRX(Fl_Menu_*, void*)
+{
+	qtc_make_rx_dialog();
+	if (qtc_rx_partner) qtc_rx_partner->value(qtc_main_window_call().c_str());
+	qtc_position_for_show(qtc_rx_dialog, qtc_rx_pos_saved, qtc_rx_x, qtc_rx_y);
+	qtc_rx_dialog->show();
+}
+
+static void cb_mnuQTCView(Fl_Menu_*, void*)
+{
+	qtc_make_view_dialog();
+	qtc_view_refresh();
+	qtc_view_dialog->show();
+}
+
+static void cb_mnuQTCReset(Fl_Menu_*, void*)
+{
+	if (fl_choice2(_("Reset QTC logs?"), _("Cancel"), _("Reset"), NULL) != 1)
+		return;
+
+	std::string stamp = qtc_backup_stamp();
+	if (!qtc_backup_and_reset_file(qtc_traffic_file(), stamp) ||
+		!qtc_backup_and_reset_file(qtc_state_file(), stamp)) {
+		if (qtc_status)
+			qtc_status_text("Could not reset QTC logs");
+		if (qtc_rx_status)
+			qtc_rx_status_text("Could not reset QTC logs");
+		return;
+	}
+
+	qtc_next_tx_series = 0;
+
+	if (qtc_status)
+		qtc_status_text("QTC logs reset");
+	if (qtc_rx_status)
+		qtc_rx_status_text("QTC logs reset");
+}
 
 Fl_Menu_Item menu_[] = {
 {_("&File"), 0,  0, 0, FL_SUBMENU, FL_NORMAL_LABEL, 0, 14, 0},
@@ -6531,6 +7619,12 @@ Fl_Menu_Item menu_[] = {
 
 { _("&Logbook"), 0, 0, 0, FL_SUBMENU, FL_NORMAL_LABEL, 0, 14, 0},
 { icons::make_icon_label(_("View")), 'l', (Fl_Callback*)cb_mnuShowLogbook, 0, FL_MENU_DIVIDER, _FL_MULTI_LABEL, 0, 14, 0},
+{ icons::make_icon_label(_("QTC Manager")), 0, 0, 0, FL_SUBMENU | FL_MENU_DIVIDER, _FL_MULTI_LABEL, 0, 14, 0},
+{ _("RX"), 'r', (Fl_Callback*)cb_mnuQTCRX, 0, 0, FL_NORMAL_LABEL, 0, 14, 0},
+{ _("TX"), 't', (Fl_Callback*)cb_mnuQTC, 0, 0, FL_NORMAL_LABEL, 0, 14, 0},
+{ _("View QTCs"), 0, (Fl_Callback*)cb_mnuQTCView, 0, 0, FL_NORMAL_LABEL, 0, 14, 0},
+{ _("Reset QTCs"), 0, (Fl_Callback*)cb_mnuQTCReset, 0, FL_MENU_DIVIDER, FL_NORMAL_LABEL, 0, 14, 0},
+{0,0,0,0,0,0,0,0,0},
 
 { icons::make_icon_label(_("Files")), 0, 0, 0, FL_SUBMENU | FL_MENU_DIVIDER, _FL_MULTI_LABEL, 0, 14, 0},
 { icons::make_icon_label(_("Open...")), 0, (Fl_Callback*)cb_mnuOpenLogbook, 0, 0, _FL_MULTI_LABEL, 0, 14, 0},
@@ -7865,6 +8959,107 @@ void cb_exit_pwr_level(void*)
 {
 	pwrlevel_grp->hide();
 }
+
+#ifdef __APPLE__
+static int handle_macos_command_shortcut(int event)
+{
+	if (event != FL_KEYBOARD && event != FL_SHORTCUT)
+		return 0;
+	if (!Fl::event_command())
+		return 0;
+
+	switch (Fl::event_key()) {
+#if USE_PORTAUDIO
+	case 'a':
+	case 'A':
+		cb_mnuRxAudioDialog(0, 0);
+		return 1;
+#endif
+	case 'b':
+	case 'B':
+		cb_mnuViewer(0, 0);
+		return 1;
+	case 'c':
+	case 'C':
+		cb_view_hide_channels(0, 0);
+		return 1;
+	case 'd':
+	case 'D':
+		cb_dxc_viewer(0, 0);
+		return 1;
+	case 'f':
+	case 'F':
+		cb_mnuDigiscope(0, 0);
+		return 1;
+//	case 'h':
+//	case 'H':
+//		cb_mnuHWfallViewer(0, 0);
+//		return 1;
+	case 'l':
+	case 'L':
+		cb_mnuShowLogbook(0, 0);
+		return 1;
+	case 'm':
+	case 'M':
+		cb_48macros(0, 0);
+		return 1;
+	case 'r':
+	case 'R':
+		cb_mnuQTCRX(0, 0);
+		return 1;
+	case 's':
+	case 'S':
+		cb_mnuSpectrum(0, 0);
+		return 1;
+	case 't':
+	case 'T':
+		cb_mnuQTC(0, 0);
+		return 1;
+	default:
+		return 0;
+	}
+}
+
+static Fl_Event_Dispatch previous_macos_event_dispatch = 0;
+
+static int macos_command_event_dispatch(int event, Fl_Window *w)
+{
+	if (handle_macos_command_shortcut(event))
+		return 1;
+	if (previous_macos_event_dispatch)
+		return previous_macos_event_dispatch(event, w);
+	return Fl::handle_(event, w);
+}
+
+static void install_macos_command_event_dispatch()
+{
+	if (Fl::event_dispatch() == macos_command_event_dispatch)
+		return;
+	previous_macos_event_dispatch = Fl::event_dispatch();
+	Fl::event_dispatch(macos_command_event_dispatch);
+}
+
+class Fldigi_Main_Window : public Fl_Double_Window
+{
+public:
+	Fldigi_Main_Window(int X, int Y, int W, int H) : Fl_Double_Window(X, Y, W, H)
+	{
+		install_macos_command_event_dispatch();
+	}
+
+	Fldigi_Main_Window(int W, int H) : Fl_Double_Window(W, H)
+	{
+		install_macos_command_event_dispatch();
+	}
+
+	int handle(int event)
+	{
+		if (handle_macos_command_shortcut(event))
+			return 1;
+		return Fl_Double_Window::handle(event);
+	}
+};
+#endif
 
 #include "fl_digi_main.cxx"
 
@@ -10838,6 +12033,11 @@ void change_menu_fonts( Fl_Font font, int size)
 	btnAutoSpot->redraw_label();
 	btnAutoSpot->redraw();
 
+	btn_EnableVideo_ID->labelsize(size);
+	btn_EnableVideo_ID->labelfont(font);
+	btn_EnableVideo_ID->redraw_label();
+	btn_EnableVideo_ID->redraw();
+
 	tx_timer->labelsize(size);
 	tx_timer->labelfont(font);
 	tx_timer->redraw_label();
@@ -10881,4 +12081,3 @@ void cb_cntcwsbandwidth(Fl_Counter2* o, void*) {
     active_modem->reset_rx_filter();
   progdefaults.changed = true;
 }
-

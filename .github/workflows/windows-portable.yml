@@ -1,0 +1,231 @@
+name: Windows x64 portable
+
+# Builds the portable Windows zip the same way it is built by hand today:
+# natively on Windows with MSYS2 / MINGW64. No cross-compilation, no MXE.
+#
+#   workflow_dispatch  -> build any ref, download the zip from the run's Artifacts
+#   release published  -> build the tag and attach the zip to that release
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch, tag or SHA to build"
+        required: false
+        default: ""
+      strip:
+        description: "Strip debug symbols (much smaller zip, no crash symbols)"
+        type: boolean
+        required: false
+        default: false
+  release:
+    types: [published]
+  # Self-test: any change to this workflow rebuilds the zip, so a packaging
+  # regression is caught in the PR that causes it rather than at release time.
+  pull_request:
+    paths:
+      - '.github/workflows/windows-portable.yml'
+
+permissions:
+  contents: write        # only used by the release-upload step
+
+jobs:
+  win64:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: 'msys2 {0}'
+
+    steps:
+      - name: Set up MSYS2 / MINGW64
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            base-devel
+            git
+            zip
+            unzip
+            autoconf
+            automake
+            libtool
+            pkgconf
+            gettext-devel
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-pkgconf
+            mingw-w64-x86_64-fltk
+            mingw-w64-x86_64-libsamplerate
+            mingw-w64-x86_64-libsndfile
+            mingw-w64-x86_64-portaudio
+            mingw-w64-x86_64-libpng
+
+      # Deliberately NOT actions/checkout. The tree contains
+      # flarq_doxygen/user_src_doc/aux/, and `aux` is a reserved Windows device
+      # name: Git for Windows rejects it while *loading the index* ("error:
+      # invalid path"), so the checkout aborts before any file is written and
+      # no sparse-checkout setting can avoid it. MSYS2's git sits on the msys
+      # runtime, which addresses such paths through the NT namespace and
+      # creates them without complaint -- the same reason hand-builds on a
+      # Windows dev box have never hit this.
+      - name: Clone source
+        run: |
+          set -euo pipefail
+          REF="${{ github.event.inputs.ref }}"
+          if [ -z "${REF}" ]; then
+            case "${{ github.event_name }}" in
+              pull_request) REF="${{ github.event.pull_request.head.sha }}" ;;
+              release)      REF="${{ github.event.release.tag_name }}" ;;
+              *)            REF="${{ github.sha }}" ;;
+            esac
+          fi
+          echo "building ref: ${REF}"
+          # blob:none keeps two decades of history (and its PDFs) off the runner;
+          # the blobs actually needed get fetched on checkout.
+          git clone --filter=blob:none "${{ github.server_url }}/${{ github.repository }}.git" .
+          git checkout --force "${REF}"
+          git --no-pager log -1 --format='%H %an %s'
+
+      - name: Configure
+        run: |
+          set -euo pipefail
+          autoreconf -vfi
+          # --without-hamlib matches the hand-built releases: TCI and RigCAT are
+          # the rig paths in this fork, and the shipped zip has never carried
+          # libhamlib. Add --with-hamlib here if that ever changes.
+          #
+          # LIBS=-lwinmm: fldigi's own sources call timeBeginPeriod/timeEndPeriod
+          # (cw, rtty, fsk, scamp, util), but m4/build.m4 adds -lwinmm only to
+          # FLARQ_BUILD_LDADD -- fldigi itself never asks for it and links only
+          # because some other library on the box happens to drag winmm in. On a
+          # clean runner nothing does, and the fldigi.exe link fails on six
+          # undefined references. Autoconf appends $LIBS last, which is the
+          # correct position for a system import library.
+          ./configure --without-hamlib LIBS="-lwinmm"
+
+      - name: Build
+        run: |
+          set -euo pipefail
+          make -C src -j"$(nproc)"
+
+      - name: Package portable zip
+        id: package
+        run: |
+          set -euo pipefail
+
+          # Read the version straight out of configure.ac, so the zip can never
+          # be named for a version the binary isn't. FLDIGI_PATCH carries its
+          # own leading dot (".13"), which is why it is concatenated, not joined.
+          acdef() { sed -n "s/^m4_define($1,[[:space:]]*\[\([^]]*\)\]).*/\1/p" configure.ac; }
+          VERSION="$(acdef FLDIGI_MAJOR).$(acdef FLDIGI_MINOR)$(acdef FLDIGI_PATCH)"
+          if [ -z "${VERSION}" ] || [ "${VERSION}" = "." ]; then
+            echo "::error::could not read version from configure.ac"; exit 1
+          fi
+          SHA="$(git rev-parse HEAD)"
+          NAME="fldigi-${VERSION}-tci-win64"
+
+          rm -rf dist "${NAME}.zip"
+          mkdir -p dist/share/fldigi/kml
+
+          # Executables
+          cp src/fldigi.exe dist/
+          if [ -f src/flarq.exe ]; then cp src/flarq.exe dist/; fi
+
+          if [ "${{ github.event.inputs.strip }}" = "true" ]; then
+            strip dist/*.exe
+          fi
+
+          # Runtime data (installed as share/fldigi by `make install`)
+          cp data/NAVTEX_Stations.csv \
+             data/ToR-Stats-SHIP.csv \
+             data/nsd_bbsss.txt \
+             data/station_table.txt \
+             data/wmo_list.txt \
+             dist/share/fldigi/
+          cp src/kml/styles.kml dist/share/fldigi/kml/
+
+          # Every MINGW64 DLL the executables actually need, transitively.
+          # ldd resolves the full chain, so libsndfile's codec DLLs (FLAC, ogg,
+          # vorbis, opus, mp3lame, mpg123) come along without being listed.
+          for exe in dist/*.exe; do
+            ldd "$exe"
+          done | awk '/\/mingw64\/bin\// {print $3}' | sort -u \
+              | while read -r dll; do cp -n "$dll" dist/; done
+
+          # Provenance: which tree this binary actually came from. Required in
+          # spirit by GPLv3 s.6 (corresponding source) and it is what lets a bug
+          # report be tied back to a commit.
+          cat > dist/BUILD-INFO.txt <<EOF
+          fldigi ${VERSION} with TCI — Windows x64 portable
+          =================================================
+
+          Commit:      ${SHA}
+          Repository:  https://github.com/${{ github.repository }}
+          Source:      https://github.com/${{ github.repository }}/tree/${SHA}
+          Built by:    GitHub Actions run ${{ github.run_id }}
+          Toolchain:   MSYS2 MINGW64, $(gcc --version | head -1)
+          Configure:   --without-hamlib
+
+          Portable: unzip anywhere and run fldigi.exe. No installer, nothing
+          written outside your fldigi settings folder.
+
+          This is an unofficial build of a fork. Report TCI problems to
+          https://github.com/${{ github.repository }}/issues — NOT to the
+          upstream fldigi project, which did not build this binary.
+
+          fldigi is free software under the GNU GPL v3 or later; see COPYING.
+          EOF
+
+          cp COPYING dist/COPYING.txt
+
+          ( cd dist && zip -9 -r "../${NAME}.zip" . )
+
+          echo "name=${NAME}"       >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "zip=${NAME}.zip"    >> "$GITHUB_OUTPUT"
+
+          echo "### Windows portable build" >> "$GITHUB_STEP_SUMMARY"
+          echo ""                            >> "$GITHUB_STEP_SUMMARY"
+          echo "| | |"                       >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|"                   >> "$GITHUB_STEP_SUMMARY"
+          echo "| Version | \`${VERSION}\` |"                     >> "$GITHUB_STEP_SUMMARY"
+          echo "| Commit | \`${SHA}\` |"                          >> "$GITHUB_STEP_SUMMARY"
+          echo "| Zip | \`${NAME}.zip\` ($(du -h "${NAME}.zip" | cut -f1)) |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Files | $(unzip -l "${NAME}.zip" | tail -1 | awk '{print $2}') |" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Sanity-check the zip
+        run: |
+          set -euo pipefail
+          test -f dist/fldigi.exe
+          # A missing DLL is the classic silent packaging failure: the zip looks
+          # fine and fldigi.exe refuses to start on a clean machine. Assert that
+          # nothing the exe needs was left in /mingw64/bin.
+          missing=0
+          for exe in dist/*.exe; do
+            while read -r dll; do
+              base="$(basename "$dll")"
+              if [ ! -f "dist/${base}" ]; then
+                echo "::error::missing runtime DLL: ${base}"
+                missing=1
+              fi
+            done < <(ldd "$exe" | awk '/\/mingw64\/bin\// {print $3}')
+          done
+          [ "$missing" -eq 0 ]
+          echo "all runtime DLLs present"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.name }}
+          path: ${{ steps.package.outputs.zip }}
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Attach to release
+        if: github.event_name == 'release'
+        run: |
+          set -euo pipefail
+          gh release upload "${{ github.event.release.tag_name }}" \
+            "${{ steps.package.outputs.zip }}" --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}

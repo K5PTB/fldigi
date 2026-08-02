@@ -68,6 +68,8 @@
 #include "threads.h"
 #include "timeops.h"
 #include "ringbuffer.h"
+#include "tci_io.h"
+#include "tcicat.h"   // tci_watchdog_active() -- throw-vs-open-pending in SoundTCI::Open()
 #include "debug.h"
 #include "qrunner.h"
 #include "icons.h"
@@ -2480,6 +2482,371 @@ void SoundPulse::src_data_reset(int mode)
 }
 
 #endif // USE_PULSEAUDIO
+
+
+// ----------------------------------------------------------------------------
+// SoundTCI -- RX audio is pulled from tci_io.cxx's rx ring buffer and TX audio
+// is pushed to its tx ring buffer; the receiver thread there bridges both to
+// the TCI WebSocket. See sound.h for the design note.
+// ----------------------------------------------------------------------------
+
+SoundTCI::SoundTCI()
+{
+	rx_open = false;
+	rx_conn_gen = 0;
+	rx_subscribed = -1;
+	rx_blocksize = 1024;
+	rx_snd_buffer = 0;
+	rx_src_state = 0;
+	tx_src_state = 0;
+
+	// Anything already acquired must be released by hand before throwing:
+	// ~SoundTCI() never runs for an object whose ctor threw, and ~SoundBase()
+	// deliberately does not touch rx_src_state/tx_src_state/rx_snd_buffer
+	// because every derived class owns its own. Both throws below are
+	// reachable from a single cause -- a sample_converter value persisted out
+	// of range in fldigi.prefs -- and trx_start()/trx_reset_loop() each
+	// construct two SoundTCI per call and retry on every device reselection,
+	// so a leak here repeats rather than happening once.
+	int err;
+
+	rx_snd_buffer = new float[rx_blocksize];
+
+	rx_src_state = src_callback_new(src_read_cb, progdefaults.sample_converter, 1, &err, this);
+	if (!rx_src_state) {
+		delete [] rx_snd_buffer;
+		throw SndException(src_strerror(err));
+	}
+
+	tx_src_state = src_new(progdefaults.sample_converter, 1, &err);
+	if (!tx_src_state) {
+		src_delete(rx_src_state);
+		delete [] rx_snd_buffer;
+		throw SndException(src_strerror(err));
+	}
+
+	LOG(debug::INFO_LEVEL, debug::LOG_RIGCONTROL, "SoundTCI constructed");
+}
+
+SoundTCI::~SoundTCI()
+{
+	Close();
+	if (rx_src_state) {
+		src_delete(rx_src_state);
+		rx_src_state = 0;
+	}
+	if (tx_src_state) {
+		src_delete(tx_src_state);
+		tx_src_state = 0;
+	}
+	delete [] rx_snd_buffer;
+}
+
+int SoundTCI::Open(int mode, int freq)
+{
+	// Every other backend throws when its device is unavailable, and that is
+	// what makes trx_reset_loop()'s SND_IDX_TCI catch -- and its fallback to
+	// SND_IDX_NULL with an alert -- reachable at all. Returning 0 regardless
+	// made that code dead: with TCI selected for audio but the server down or
+	// TCI CAT disabled, tci_send() silently drops the subscription commands on
+	// the floor (no send_list without a connection), Open() reported success,
+	// and the user got a working-looking sound device with permanent silence,
+	// no alert and no fallback.
+	//
+	// Refined for start-order durability: throw only when NOTHING will ever
+	// recover the device. With the reconnect watchdog armed (TCI is the
+	// configured rig control -- connected, retrying, or waiting for the
+	// server's first appearance), a disconnected open proceeds "pending":
+	// Read()'s starved callback feeds paced silence in the interim, and the
+	// connection_generation bump on connect makes Read() re-subscribe RX
+	// audio automatically. Throwing here in that case was worse than
+	// useless -- the fallback demoted btnAudioIOis to File I/O, so when the
+	// watchdog later brought the link up, CAT recovered but audio stayed
+	// dead. Without the watchdog (TCI audio selected but TCI CAT not
+	// configured), the original fail-fast throw stands: silence would be
+	// permanent, so surface it.
+	if (!tci_connected() && !tci_watchdog_active())
+		throw SndException("TCI is not connected -- check Rig Control/TCI");
+
+	req_sample_rate = freq;
+	sample_frequency = TCI_AUDIO_SAMPLE_RATE;
+
+	LOG(debug::INFO_LEVEL, debug::LOG_RIGCONTROL, "SoundTCI::Open mode=%d freq=%d", mode, freq);
+
+	// Reset the resampler for the direction being opened, as every sibling
+	// does: SoundPulse::Open() calls src_data_reset() unconditionally on
+	// entry, SoundPort::Open() reaches it through init_stream(). trx.cxx
+	// Close()s and Open()s the card whenever the modem's sample rate changes
+	// and relies on that to reinitialize the converter -- it is the invariant
+	// the other backends uphold.
+	//
+	// SoundTCI created its SRC states once in the ctor and never touched them
+	// again, so filter history and the previous src_ratio survived every
+	// Close/Open cycle. libsamplerate ramps last_ratio -> src_ratio across the
+	// first block, so the first block after each mode change was pitch-smeared
+	// and the RX state additionally replayed the previous mode's buffered
+	// samples into the new decoder. On TX that went out on the air.
+	if ((mode == O_RDONLY || mode == O_RDWR) && rx_src_state)
+		src_reset(rx_src_state);
+	if ((mode == O_WRONLY || mode == O_RDWR) && tx_src_state)
+		src_reset(tx_src_state);
+
+	if (mode == O_RDONLY || mode == O_RDWR) {
+		rx_subscribed = tci_receiver();
+		tci_audio_start(rx_subscribed);
+		rx_conn_gen = tci_connection_generation();
+		rx_open = true;
+	}
+	return 0;
+}
+
+// SoundBase's drain contract: block until queued TX audio has actually gone
+// out, so the caller can drop PTT without cutting the transmission short.
+// SoundPort::flush() waits on spa_drain and SoundPulse::flush() drains the
+// stream for the same reason; this was an empty inline no-op, so trx.cxx's
+// flush() before push2talk->set(false) did nothing and every over lost its
+// tail -- and, the ring being FIFO, replayed that tail over the start of the
+// next one.
+//
+// The two directions mean different things, and an earlier version of this
+// function got that wrong -- it handled only TX, on the reasoning that RX "is
+// read straight out of its ring by Read(), with nothing queued on our side to
+// push". That conflates flush's two jobs. For TX it means push pending output
+// out before the caller drops PTT. For RX it means DISCARD stale input, which
+// is exactly what SoundPort::flush() and SoundPulse::flush() do with audio
+// their device captured while fldigi was transmitting.
+//
+// Skipping the RX half was not cosmetic. progdefaults.is_full_duplex defaults
+// on, so trx.cxx never closes the RX card during TX and the audio_start
+// subscription stays live: the receiver thread keeps filling rx_audio_rb for
+// the whole over until the 65536-sample (1.36 s) ring saturates. On return to
+// receive, trx_trx_receive_loop() calls flush(O_RDONLY) precisely so the modem
+// does not decode that; with the call doing nothing, rx_init() was followed by
+// 1.36 s of fldigi's own transmission -- its tail and trailing RSID -- and
+// because Read() consumes at exactly real time the backlog never drained. RX
+// and the waterfall stayed ~1.4 s behind for the rest of the session.
+void SoundTCI::flush(unsigned dir)
+{
+	if (dir == (unsigned)O_WRONLY || dir == UINT_MAX) {
+		tci_tx_audio_drain();
+
+		// Symmetry with the RX half below. Reset the TX resampler at the
+		// PTT-down boundary so its filter history and last src_ratio ramp from
+		// this over don't seed a transient into the start of the next one. In
+		// full duplex trx.cxx does not Close/Open the TX card between same-rate
+		// overs, so Open()'s reset does not cover this case.
+		if (tx_src_state)
+			src_reset(tx_src_state);
+	}
+
+	if (dir == (unsigned)O_RDONLY || dir == UINT_MAX) {
+		size_t dropped = tci_rx_audio_discard();
+
+		// The ring is not the only place stale audio hides. rx_src_state
+		// holds libsamplerate's filter history and any input it has buffered
+		// but not yet emitted, so discarding the ring alone still let the
+		// first samples after the flush be derived from audio captured while
+		// transmitting. Both have to go for the drop to mean anything.
+		if (rx_src_state)
+			src_reset(rx_src_state);
+
+		if (dropped)
+			LOG(debug::INFO_LEVEL, debug::LOG_RIGCONTROL,
+				"flush: dropped %u stale RX samples (%.2fs)",
+				(unsigned)dropped, (double)dropped / TCI_AUDIO_SAMPLE_RATE);
+	}
+}
+
+void SoundTCI::Close(unsigned dir)
+{
+	if ((dir == (unsigned)O_RDONLY || dir == UINT_MAX) && rx_open) {
+		// Unsubscribe the receiver we actually subscribed to, not whatever is
+		// selected now -- the user may have changed the Rig selection since.
+		tci_audio_stop(rx_subscribed >= 0 ? rx_subscribed : tci_receiver());
+		rx_subscribed = -1;
+		rx_open = false;
+	}
+}
+
+// Pull-style callback for libsamplerate's src_callback_read(): fetch up to
+// rx_blocksize samples from tci_io.cxx's ring buffer, blocking briefly
+// (bounded) if it's momentarily empty so the caller doesn't busy-spin --
+// mirrors SoundPulse::src_read_cb's role, but pulling from a ring buffer
+// fed by the TCI receiver thread instead of a blocking pa_simple_read().
+//
+// This callback must NEVER return 0 while the stream is nominally alive.
+// libsamplerate's callback API defines a 0 return as END OF INPUT: the
+// SRC_STATE latches it, the callback is never invoked again, and every later
+// src_callback_read() spins in the sinc flush path producing nothing --
+// permanently, even after the ring refills. Field signature (caught live on
+// macOS, thread sample): audio silent, trx_thread pinned at 100% CPU inside
+// sinc_mono_vari_process/src_callback_read with src_read_cb absent from
+// every sample, TCI link healthy. Only src_reset() clears the latch, and
+// steady-state Read() has no reason to call it.
+//
+// So a starved read feeds a block of SILENCE instead. Pacing is preserved --
+// the 100 ms blocking wait above already throttles each starved pass, so
+// this cannot free-run the modem; the decoder just hears quiet (which is
+// what a stalled stream IS) and recovers seamlessly the moment real frames
+// arrive.
+long SoundTCI::src_read_cb(void* arg, float** data)
+{
+	SoundTCI *p = reinterpret_cast<SoundTCI*>(arg);
+	// Block up to ~100 ms for the receiver thread to deliver a frame, waking
+	// the instant it arrives rather than polling in 5 ms steps.
+	size_t n = tci_rx_audio_read_wait(p->rx_snd_buffer, p->rx_blocksize, 100);
+	static unsigned starved = 0, fed = 0;
+	if (n == 0) {
+		if (++starved <= 5 || starved % 200 == 0)
+			LOG(debug::INFO_LEVEL, debug::LOG_RIGCONTROL, "SoundTCI::src_read_cb starved (#%u) -- feeding silence", starved);
+		memset(p->rx_snd_buffer, 0, p->rx_blocksize * sizeof(float));
+		n = p->rx_blocksize;
+	} else {
+		if (++fed <= 5 || fed % 200 == 0)
+			LOG(debug::INFO_LEVEL, debug::LOG_RIGCONTROL, "SoundTCI::src_read_cb fed %zu samples (#%u)", n, fed);
+	}
+	*data = p->rx_snd_buffer;
+	return (long)n;
+}
+
+size_t SoundTCI::Read(float *buf, size_t count)
+{
+	// Playback of a recorded file and capture-to-file are SoundBase features
+	// every other backend honors (SoundPort::Read, SoundPulse::Read); mirror
+	// them so decoding a WAV and recording RX both work with TCI selected.
+	if (ifPlayback) {
+		read_file(ifPlayback, buf, count);
+		if (!ofCapture) {
+			if (!bHighSpeed)
+				MilliSleep((long)ceil((1e3 * count) / req_sample_rate));
+			return count;
+		}
+	}
+
+	if (!rx_open) {
+		MilliSleep(5);
+		return 0;
+	}
+
+	// The TCI CAT connection (Rig Control/TCI tab) can reconnect independently
+	// of this audio device ever being closed/reopened. On that bump: drop the
+	// previous connection's buffered RX -- we are rx_audio_rb's reader, so this
+	// is the single-reader-safe place to do it, which is why tci_open() no
+	// longer resets the ring itself -- reset the resampler (its filter history
+	// and buffered-but-unemitted samples would otherwise pitch-smear the first
+	// blocks and mix in stale pre-disconnect audio), then re-subscribe.
+	//
+	// The same seam also handles the user changing the Rig selection
+	// (Rig Control/TCI -> Rig) mid-session. That happens on the FLTK thread,
+	// but the unsubscribe/discard/resubscribe must happen HERE: we are
+	// rx_audio_rb's reader, and tci_rx_audio_discard() moves the reader's own
+	// index. Order matters -- audio_stop the OLD receiver while its index is
+	// still meaningful, then discard, then subscribe the new one. Skipping
+	// the discard would let the previous receiver's buffered audio be decoded
+	// as if it came from the new one.
+	unsigned gen = tci_connection_generation();
+	int want_rx = tci_receiver();
+	if (gen != rx_conn_gen || want_rx != rx_subscribed) {
+		// Only unsubscribe when the socket is the same one we subscribed on.
+		// On a reconnect (gen bump) the old subscription died with the old
+		// connection, and audio_stop for it would address the new server.
+		if (gen == rx_conn_gen && rx_subscribed >= 0 && rx_subscribed != want_rx)
+			tci_audio_stop(rx_subscribed);
+		tci_rx_audio_discard();
+		if (rx_src_state)
+			src_reset(rx_src_state);
+		tci_audio_start(want_rx);
+		rx_conn_gen = gen;
+		rx_subscribed = want_rx;
+	}
+
+	double ratio = req_sample_rate / (double)sample_frequency;
+	size_t n = 0;
+	long r;
+	while (n < count) {
+		r = src_callback_read(rx_src_state, ratio, count - n, buf + n);
+		if (r <= 0) {
+			// Belt-and-braces against the end-of-input latch (see
+			// src_read_cb above) or any src error state: with the callback
+			// now silence-filling, a healthy resampler can only return > 0,
+			// so r <= 0 means the state is wedged -- un-latch it so the next
+			// pass recovers, and sleep so this loop can never become the
+			// unpaced 100%-CPU spin observed in the field (nothing else in
+			// this path blocks once src_callback_read fails instantly).
+			LOG(debug::WARN_LEVEL, debug::LOG_RIGCONTROL,
+				"SoundTCI::Read src_callback_read returned %ld -- resetting resampler", r);
+			if (rx_src_state)
+				src_reset(rx_src_state);
+			MilliSleep(10);
+			break;
+		}
+		n += (size_t)r;
+	}
+
+	if (ofCapture)
+		write_file(ofCapture, buf, NULL, count);
+
+	return n;
+}
+
+size_t SoundTCI::Write(double* buf, size_t count)
+{
+	// Record generated/transmit audio if requested, like every other backend.
+	if (ofGenerate)
+		write_file(ofGenerate, buf, NULL, count);
+
+	if (!active_modem) return count;
+
+	tx_fbuf.resize(count);
+	for (size_t i = 0; i < count; i++)
+		tx_fbuf[i] = (float)buf[i];
+
+	return resample_write(tx_fbuf.data(), count);
+}
+
+size_t SoundTCI::Write_stereo(double* bufleft, double* bufright, size_t count)
+{
+	if (ofGenerate)
+		write_file(ofGenerate, bufleft, bufright, count);
+
+	if (!active_modem) return count ? count : 1;
+
+	tx_fbuf.resize(count);
+	for (size_t i = 0; i < count; i++)
+		tx_fbuf[i] = (float)(0.5 * (bufleft[i] + bufright[i]));
+
+	return resample_write(tx_fbuf.data(), count);
+}
+
+// Resamples modem-rate mono audio up to TCI_AUDIO_SAMPLE_RATE and pushes it
+// into tci_io.cxx's TX ring buffer, from which handle_tx_chrono() pulls a
+// block every time the server's TX_CHRONO frame arrives. Block-based
+// (src_process, not the pull-style callback RX uses) since the full input
+// is already in hand here -- no need to poll for it like Read() does.
+size_t SoundTCI::resample_write(float* buf, size_t count)
+{
+	double ratio = (double)TCI_AUDIO_SAMPLE_RATE / req_sample_rate;
+
+	size_t max_out = (size_t)(count * ratio) + 256;
+	tx_outbuf.resize(max_out);
+
+	SRC_DATA sd;
+	sd.data_in = buf;
+	sd.input_frames = count;
+	sd.data_out = tx_outbuf.data();
+	sd.output_frames = max_out;
+	sd.src_ratio = ratio;
+	sd.end_of_input = 0;
+
+	int err = src_process(tx_src_state, &sd);
+	if (err)
+		throw SndException(src_strerror(err));
+
+	if (sd.output_frames_gen > 0)
+		tci_tx_audio_write(tx_outbuf.data(), (size_t)sd.output_frames_gen);
+
+	return count;
+}
 
 
 size_t SoundNull::Write(double* buf, size_t count)

@@ -40,6 +40,14 @@ XMLRPC_SRC = \
 include/xmlrpc.h \
 network/xmlrpc.cxx
 
+TCI_SRC = \
+include/WSclient.h \
+network/WSclient.cxx \
+include/tci_io.h \
+rigcontrol/tci_io.cxx \
+include/tcicat.h \
+rigcontrol/tcicat.cxx
+
 FLDIGI_WIN32_RES_SRC = fldigirc.rc
 
 FLARQ_WIN32_RES_SRC = flarq-src/flarqrc.rc
@@ -245,7 +253,7 @@ LIBMBEDTLS_SRC = \
 
 
 EXTRA_fldigi_SOURCES = \
-	$(HAMLIB_SRC) $(XMLRPC_SRC) $(FLDIGI_WIN32_RES_SRC) \
+	$(HAMLIB_SRC) $(XMLRPC_SRC) $(TCI_SRC) $(FLDIGI_WIN32_RES_SRC) \
 	$(COMMON_WIN32_RES_SRC) $(BENCHMARK_SRC) $(REGEX_SRC) $(STACK_SRC) \
 	$(MINGW32_SRC) $(NLS_SRC) $(XMLRPCPP_SRC) $(LIBMBEDTLS_SRC)
 
@@ -255,6 +263,7 @@ fldigi_SOURCES =
 flarq_SOURCES =
 
 fldigi_SOURCES += $(XMLRPC_SRC)
+fldigi_SOURCES += $(TCI_SRC)
 
 if !ENABLE_FLXMLRPC
 fldigi_SOURCES += $(XMLRPCPP_SRC)

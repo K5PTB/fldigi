@@ -374,6 +374,8 @@ int cb_qso_opMODE()
 #endif
 	if (progdefaults.chkUSERIGCATis)
 		rigCAT_setmode(qso_opMODE->value());
+	else if (progdefaults.chkUSETCIis)
+		tci_setmode(qso_opMODE->value());
 	else
 		noCAT_setmode(qso_opMODE->value());
 	return 0;
@@ -432,6 +434,8 @@ void sendFreq(unsigned long long f)
 #endif
 	else if (progdefaults.chkUSERIGCATis)
 		rigCAT_setfreq(f);
+	else if (progdefaults.chkUSETCIis)
+		tci_setfreq(f);
 	else
 		noCAT_setfreq(f);
 

@@ -459,6 +459,12 @@ void sound_init(void)
 	btnAudioIO[SND_IDX_PULSE]->deactivate();
 	inpPulseServer->deactivate();
 #endif
+	// TCI audio only makes sense with the TCI CAT connection (Rig Control/
+	// TCI tab) actually enabled -- it's what the audio subscribe rides on.
+	// Kept in sync live thereafter by tci_audio_ui_enable() below, called from
+	// every checkbox that can turn TCI CAT on or off.
+	if (!progdefaults.chkUSETCIis)
+		btnAudioIO[SND_IDX_TCI]->deactivate();
 	if (progdefaults.btnAudioIOis == SND_IDX_UNKNOWN ||
 		!btnAudioIO[progdefaults.btnAudioIOis]->active()) { // or saved sound api now disabled
 		int io[4] = { SND_IDX_PORT, SND_IDX_PULSE, SND_IDX_OSS, SND_IDX_NULL };
@@ -478,6 +484,35 @@ void sound_init(void)
 
 	sound_update(progdefaults.btnAudioIOis);
 
+}
+
+// Live counterpart to sound_init()'s startup rule above: keep the TCI entry in
+// the Soundcard/Devices radio group enabled only while TCI CAT is on. Called
+// from the CAT-mechanism checkbox callbacks in confdialog.fl. Lives here, not
+// in the generated confdialog.cxx, so a fluid regeneration cannot drop it.
+void tci_audio_ui_enable(bool on)
+{
+	if (!btnAudioIO[SND_IDX_TCI]) return; // not constructed yet
+	if (on) {
+		btnAudioIO[SND_IDX_TCI]->activate();
+	} else {
+		// Turning TCI CAT off while TCI audio is the selected backend would
+		// leave audio pointed at a device with no connection behind it; fall
+		// the backend back to File I/O before disabling the button.
+		if (progdefaults.btnAudioIOis == SND_IDX_TCI) {
+			sound_update(SND_IDX_NULL);
+			progdefaults.changed = true;
+			resetSoundCard();
+		}
+		btnAudioIO[SND_IDX_TCI]->deactivate();
+	}
+	btnAudioIO[SND_IDX_TCI]->redraw();
+
+	// Every checkbox that can turn TCI CAT on or off already calls this, so
+	// it is also the one place that knows the Rig selector (Rig Control/TCI)
+	// needs re-enabling or greying. Piggy-backing here keeps that wiring out
+	// of the fluid-generated callbacks, which a regeneration would drop.
+	tci_receiver_ui_refresh();
 }
 
 void sound_close(void)
@@ -561,6 +596,7 @@ void sound_update(unsigned idx)
 #endif
 
 		case SND_IDX_NULL:
+		case SND_IDX_TCI:      // neither has a device string
 			scDevice[0] = scDevice[1] = "";
 			break;
 	};

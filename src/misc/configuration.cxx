@@ -791,6 +791,7 @@ LOG_INFO("Closing rig interface threads");
 #endif
 	rigCAT_close();
 //		MilliSleep(100);
+	tci_cat_close();
 
 	RigCatCMDptt = btnRigCatCMDptt->value();
 	TTYptt = btnTTYptt->value();
@@ -807,6 +808,7 @@ LOG_INFO("Closing rig interface threads");
      HamlibCMDptt = btnHamlibCMDptt->value();
 #endif
 	chkUSERIGCATis = chkUSERIGCAT->value();
+	chkUSETCIis = chkUSETCI->value();
 
 #if USE_HAMLIB
 	if (*cboHamlibRig->value() == '\0') // no selection at start up
@@ -820,6 +822,17 @@ LOG_INFO("Closing rig interface threads");
 	inpRIGdev->hide();
 	listbox_baudrate->hide();
 #endif
+
+	// connected_to_flrig is a live flag owned by the flrig poll thread; it
+	// stays set after the user switches CAT to another backend (unchecking
+	// flrig clears the config flag, not the connection). Left as-is it wins
+	// the priority chain below, so a user migrating from flrig to TCI (or
+	// rigCAT/hamlib) would find the new backend never starts -- the reconnect
+	// button looks dead and freq/mode/PTT keep routing to flrig. If flrig is
+	// no longer the selected backend, drop the stale connection so the user's
+	// actual choice takes effect. (Mirrors the set_cat_ptt() fix in trx.cxx.)
+	if (connected_to_flrig && !fldigi_client_to_flrig)
+		reconnect_to_flrig();
 
 	if (connected_to_flrig) {
 		LOG_INFO("%s", "using flrig xcvr control");
@@ -851,6 +864,28 @@ LOG_INFO("Closing rig interface threads");
 			wf->setQSY(0);
 		}
 #endif
+	} else if (chkUSETCIis) { // start the TCI thread
+		if (tci_init()) {
+			LOG_INFO("%s", "using TCI xcvr control");
+			wf->USB(true);
+			wf->setQSY(1);
+		} else {
+			// Do NOT un-configure TCI (the old `chkUSETCIis = false` here):
+			// "server not up YET" is the normal cold-start case when fldigi
+			// launches before the radio server, and clearing the flag made
+			// that ordering permanent -- the user had to re-apply Rig
+			// Control by hand once the server was up. Fall back to no-CAT
+			// for now, keep the user's choice, and arm the watchdog in
+			// cold-start mode: it completes the full TCI init automatically
+			// when the server appears. tci_init() already surfaced the
+			// immediate "TCI server not responding" feedback, so a typo'd
+			// address/port is still visible at the config dialog.
+			LOG_INFO("%s", "no xcvr control until the TCI server appears (watchdog armed)");
+			noCAT_init();
+			wf->USB(true);
+			wf->setQSY(0);
+			tci_watchdog_arm_pending();
+		}
 	} else {
 		LOG_INFO("%s", "No xcvr control selected");
 		noCAT_init();

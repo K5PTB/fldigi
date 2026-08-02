@@ -40,7 +40,7 @@ jobs:
             libfltk${{ matrix.fltk }}-dev \
             libsamplerate0-dev libsndfile1-dev libpng-dev \
             portaudio19-dev libpulse-dev libasound2-dev \
-            libhamlib-dev libxft-dev libxinerama-dev
+            libhamlib-dev libxft-dev libxinerama-dev libudev-dev
           echo "fltk-config: $(fltk-config --version)"
 
       - name: Configure
@@ -100,9 +100,16 @@ jobs:
           # BUILDING.md: libsndfile is keg-only so its .pc file is not on the
           # default search path, and FLTK_CONFIG must point at Homebrew's
           # fltk-config rather than whatever configure would guess.
+          # LDFLAGS is required on Apple Silicon and NOT optional: FLTK 1.4.5's
+          # fltk-config emits -ljpeg, and Homebrew's /opt/homebrew/lib is not a
+          # default linker search path on arm64 (/usr/local/lib is, on Intel) --
+          # so the link dies with "ld: library 'jpeg' not found" on arm64 while
+          # Intel succeeds. BUILDING.md says the commands are identical on both
+          # architectures; on this point they are not.
           ./configure \
             PKG_CONFIG_PATH="$(brew --prefix)/lib/pkgconfig:$(brew --prefix libsndfile)/lib/pkgconfig" \
-            FLTK_CONFIG="$(brew --prefix)/bin/fltk-config"
+            FLTK_CONFIG="$(brew --prefix)/bin/fltk-config" \
+            LDFLAGS="-L$(brew --prefix)/lib"
 
       - name: Build
         run: make -C src -j"$(sysctl -n hw.ncpu)"

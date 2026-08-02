@@ -1,7 +1,7 @@
 # Building fldigi (with TCI) from source
 
-This fork's default branch (`master`) has the full TCI feature plus a FLTK 1.4
-Wayland launch-crash fix. A plain clone builds it.
+This fork's default branch (`master`) has the full TCI feature on top of
+fldigi 4.2.13. A plain clone builds it.
 
 Two dependencies are **bundled in the source tree** — mbedtls (`src/mbedtls/`,
 used by the WebSocket client) and the FFT — so you never install those
@@ -14,15 +14,18 @@ systems); none of it is needed to run fldigi.
 
 ## FLTK version — please note
 
-fldigi builds against **FLTK 1.4** or **FLTK 1.3**:
+fldigi builds against **FLTK 1.4** or **FLTK 1.3**, exactly as upstream fldigi
+does — this fork adds no FLTK version requirement of its own:
 
 - **FLTK 1.4 — tested.** macOS (Homebrew 1.4.5), Raspberry Pi OS / Debian
   trixie (1.4.3), and the Windows build all use FLTK 1.4.
-- **FLTK 1.3 — supported in source, but NOT yet verified.** The tree keeps
-  upstream fldigi's FLTK 1.3 code paths, so it *should* build on older distros
-  (e.g. Debian 12, Ubuntu 22.04) whose `apt` only provides FLTK 1.3. **This has
-  not yet been compiled on a 1.3 system.** If you build it on FLTK 1.3, please
-  report success or failure — testers wanted.
+- **FLTK 1.3 — should work, not independently verified.** The fork's only
+  `main.cxx` change was an earlier Wayland launch-crash guard; that was dropped
+  when the tree merged upstream's own v4.2.12 Wayland fix, so nothing here
+  requires a FLTK 1.4 symbol, and the TCI code itself uses no 1.4-only FLTK
+  calls. It *should* build on older distros (e.g. Debian 12, Ubuntu 22.04)
+  whose `apt` only provides FLTK 1.3. If you build it on FLTK 1.3, a
+  success/failure report is still welcome.
 
 ---
 
@@ -37,7 +40,7 @@ sudo apt-get install -y \
     portaudio19-dev libpulse-dev libasound2-dev \
     libhamlib-dev libxft-dev libxinerama-dev
 
-# 2. Source (master = TCI feature + Wayland fix)
+# 2. Source (master = TCI feature on fldigi 4.2.13)
 git clone https://github.com/K5PTB/fldigi.git
 cd fldigi
 

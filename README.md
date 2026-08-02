@@ -4,14 +4,14 @@ A fork of [fldigi](https://sourceforge.net/projects/fldigi/) that adds native
 **TCI (Transceiver Control Interface)** support: CAT rig control **and**
 full-duplex RX/TX audio over a single WebSocket connection to an
 ExpertSDR / SunSDR / AetherSDR-class SDR server — with **no** hardware CAT port
-and **no** virtual audio cable. Everything else is stock fldigi 4.2.11 (all the
+and **no** virtual audio cable. Everything else is stock fldigi 4.2.13 (all the
 usual digital modes, logging, etc.).
 
 ## Download & install
 
 | Platform | How |
 |----------|-----|
-| **Windows 11 (x64)** | Download the portable zip from [**Releases**](https://github.com/K5PTB/fldigi/releases) (`fldigi-4.2.11-tci-win64.zip`), unzip anywhere, run `fldigi.exe`. No installer. |
+| **Windows 11 (x64)** | Download the portable zip from [**Releases**](https://github.com/K5PTB/fldigi/releases) (`fldigi-4.2.13-tci-win64.zip`), unzip anywhere, run `fldigi.exe`. No installer. |
 | **Linux** (Debian / Ubuntu / Raspberry Pi OS) | Build from source — see **[BUILDING.md](BUILDING.md)** (a few minutes). |
 | **macOS** (Intel & Apple Silicon) | Build from source — see **[BUILDING.md](BUILDING.md)**. |
 
@@ -57,8 +57,8 @@ what get this feature ready for upstream. Your help would be appreciated.
 
 ## About this fork
 
-Based on fldigi **4.2.11**. The only additions are the TCI feature and a small
-FLTK 1.4 Wayland launch-crash fix; non-TCI behavior is unchanged. For the full
+Based on fldigi **4.2.13**. The only addition is the TCI feature; non-TCI
+behavior is unchanged. For the full
 list of modes, features, and documentation, see the upstream project:
 
 - Upstream source: <https://sourceforge.net/projects/fldigi/>

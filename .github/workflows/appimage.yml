@@ -1,0 +1,140 @@
+name: Linux AppImage
+
+# A portable Linux binary that runs on any reasonably modern x86_64 distro
+# without installing dependencies -- the Linux counterpart to the Windows
+# portable zip. Needs no secrets of any kind.
+#
+# Built on ubuntu-22.04 ON PURPOSE: an AppImage's real minimum glibc is that of
+# the machine that linked it, so building on the newest runner would silently
+# raise the floor and break the older distros this format exists to serve.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/appimage.yml'
+
+permissions:
+  contents: write        # only used by the release-attach step
+
+jobs:
+  appimage:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential autoconf automake libtool pkg-config \
+            gettext autopoint \
+            libfltk1.3-dev libsamplerate0-dev libsndfile1-dev libpng-dev \
+            portaudio19-dev libpulse-dev libasound2-dev \
+            libhamlib-dev libxft-dev libxinerama-dev libudev-dev \
+            imagemagick file desktop-file-utils wget
+
+      - name: Build
+        run: |
+          set -euo pipefail
+          autoreconf -vfi
+          ./configure --prefix=/usr
+          make -C src -j"$(nproc)"
+
+      - name: Stage AppDir
+        id: stage
+        run: |
+          set -euo pipefail
+          acdef() { sed -n "s/^m4_define($1,[[:space:]]*\[\([^]]*\)\]).*/\1/p" configure.ac; }
+          VERSION="$(acdef FLDIGI_MAJOR).$(acdef FLDIGI_MINOR)$(acdef FLDIGI_PATCH)"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+          # Assembled by hand rather than `make install`: the top-level install
+          # target pulls in the asciidoc/xsltproc man-page build, which
+          # BUILDING.md already tells people to skip because it is fragile.
+          install -Dm755 src/fldigi AppDir/usr/bin/fldigi
+          if [ -f src/flarq ]; then install -Dm755 src/flarq AppDir/usr/bin/flarq; fi
+
+          install -Dm644 data/fldigi.desktop \
+            AppDir/usr/share/applications/fldigi.desktop
+          # linuxdeploy requires the icon basename to match the desktop file's
+          # Icon= key. fldigi ships only an XPM, so convert it.
+          convert data/fldigi.xpm -resize 256x256 fldigi.png
+          install -Dm644 fldigi.png \
+            AppDir/usr/share/icons/hicolor/256x256/apps/fldigi.png
+
+          # Runtime data the app looks for under share/fldigi
+          mkdir -p AppDir/usr/share/fldigi/kml
+          cp data/NAVTEX_Stations.csv data/ToR-Stats-SHIP.csv \
+             data/nsd_bbsss.txt data/station_table.txt data/wmo_list.txt \
+             AppDir/usr/share/fldigi/
+          cp src/kml/styles.kml AppDir/usr/share/fldigi/kml/
+
+          install -Dm644 COPYING AppDir/usr/share/doc/fldigi/COPYING
+
+          cat > AppDir/usr/share/doc/fldigi/BUILD-INFO.txt <<EOF
+          fldigi ${VERSION} with TCI - Linux x86_64 AppImage
+
+          Commit:     $(git rev-parse HEAD)
+          Source:     ${{ github.server_url }}/${{ github.repository }}
+          Built by:   GitHub Actions run ${{ github.run_id }}
+          Built on:   ubuntu-22.04 (glibc floor), FLTK $(fltk-config --version)
+
+          Unofficial build of a fork. Report TCI problems to
+          ${{ github.server_url }}/${{ github.repository }}/issues - NOT to the
+          upstream fldigi project, which did not build this binary.
+
+          fldigi is free software under the GNU GPL v3 or later; see COPYING.
+          EOF
+
+      - name: Build AppImage
+        run: |
+          set -euo pipefail
+          # Fetched OUTSIDE the workspace on purpose: linuxdeploy is itself an
+          # .AppImage, so leaving it next to the build output makes any
+          # *.AppImage glob match the build tool as well as the product -- which
+          # would quietly attach linuxdeploy to a GitHub release.
+          LD="${RUNNER_TEMP}/linuxdeploy-x86_64.AppImage"
+          wget -q -O "$LD" https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          chmod +x "$LD"
+          # The runner has no FUSE, so the AppImage tools cannot mount
+          # themselves; --appimage-extract-and-run is the documented escape.
+          export APPIMAGE_EXTRACT_AND_RUN=1
+          export OUTPUT="fldigi-${{ steps.stage.outputs.version }}-tci-x86_64.AppImage"
+          "$LD" \
+            --appdir AppDir \
+            --desktop-file AppDir/usr/share/applications/fldigi.desktop \
+            --icon-file AppDir/usr/share/icons/hicolor/256x256/apps/fldigi.png \
+            --output appimage
+          test -f "$OUTPUT"
+          ls -lh "$OUTPUT"
+
+      - name: Verify the AppImage actually runs
+        run: |
+          set -euo pipefail
+          APP="fldigi-${{ steps.stage.outputs.version }}-tci-x86_64.AppImage"
+          chmod +x "$APP"
+          # Running it proves the bundle resolves its own libraries -- a green
+          # build with a missing lib is the classic silent AppImage failure.
+          out="$(APPIMAGE_EXTRACT_AND_RUN=1 ./"$APP" --version)"
+          echo "$out"
+          echo "$out" | grep -q "${{ steps.stage.outputs.version }}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: fldigi-${{ steps.stage.outputs.version }}-linux-x86_64-AppImage
+          path: fldigi-*.AppImage
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          files: fldigi-*.AppImage

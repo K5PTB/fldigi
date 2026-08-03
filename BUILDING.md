@@ -12,20 +12,12 @@ application**. It deliberately skips the man-page / HTML documentation build
 (that needs the `asciidoc` + `xsltproc` toolchain and is fragile on some
 systems); none of it is needed to run fldigi.
 
-## FLTK version — please note
+## FLTK version
 
-fldigi builds against **FLTK 1.4** or **FLTK 1.3**, exactly as upstream fldigi
-does — this fork adds no FLTK version requirement of its own:
-
-- **FLTK 1.4 — tested.** macOS (Homebrew 1.4.5), Raspberry Pi OS / Debian
-  trixie (1.4.3), and the Windows build all use FLTK 1.4.
-- **FLTK 1.3 — should work, not independently verified.** The fork's only
-  `main.cxx` change was an earlier Wayland launch-crash guard; that was dropped
-  when the tree merged upstream's own v4.2.12 Wayland fix, so nothing here
-  requires a FLTK 1.4 symbol, and the TCI code itself uses no 1.4-only FLTK
-  calls. It *should* build on older distros (e.g. Debian 12, Ubuntu 22.04)
-  whose `apt` only provides FLTK 1.3. If you build it on FLTK 1.3, a
-  success/failure report is still welcome.
+The instructions below use **FLTK 1.4** — what Raspberry Pi OS / Debian trixie
+(1.4.3) and the macOS and Windows builds all ship. This fork adds no FLTK
+version requirement of its own: FLTK 1.3 also builds (compile-checked in CI on
+every push), exactly as upstream fldigi does.
 
 ---
 
@@ -55,9 +47,8 @@ make -C src -j4        # -C src avoids the asciidoc/xsltproc man-page build
 
 - **Verified** on Raspberry Pi 5 / Debian trixie (aarch64); the same steps apply
   to x86-64 Debian/Ubuntu.
-- On an older release whose `apt` only has FLTK 1.3, install `libfltk1.3-dev`
-  instead of `libfltk1.4-dev` — but see the FLTK-version note above: 1.3 is not
-  yet verified.
+- If your distribution ships FLTK 1.3 rather than 1.4, install `libfltk1.3-dev`
+  instead of `libfltk1.4-dev` — it builds the same.
 
 ## macOS — Intel (x86-64) and Apple Silicon (ARM)
 

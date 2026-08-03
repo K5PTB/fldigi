@@ -11,12 +11,17 @@ usual digital modes, logging, etc.).
 
 | Platform | How |
 |----------|-----|
-| **Windows 11 (x64)** | Download the portable zip from [**Releases**](https://github.com/K5PTB/fldigi/releases) (`fldigi-4.2.13-tci-win64.zip`), unzip anywhere, run `fldigi.exe`. No installer. |
-| **Linux** (Debian / Ubuntu / Raspberry Pi OS) | Build from source — see **[BUILDING.md](BUILDING.md)** (a few minutes). |
+| **Windows 11 (x64)** | Download `fldigi-4.2.13-tci-win64.zip` from [**Releases**](https://github.com/K5PTB/fldigi/releases), unzip anywhere, run `fldigi.exe`. No installer. |
+| **Linux** (x86‑64) | Download the portable `fldigi-4.2.13-tci-x86_64.AppImage` from [**Releases**](https://github.com/K5PTB/fldigi/releases), `chmod +x` it, and run — nothing to install. Or [build from source](BUILDING.md). |
 | **macOS** (Intel & Apple Silicon) | Build from source — see **[BUILDING.md](BUILDING.md)**. |
 
-There is intentionally no prebuilt Linux binary: Linux users build against their
-own system libraries, exactly as with upstream fldigi.
+The Windows zip and the Linux AppImage are built by GitHub Actions from the
+tagged release and each carries a `BUILD-INFO.txt` naming the exact commit. The
+AppImage is **x86‑64 only** — on ARM (e.g. Raspberry Pi) build from source; the
+steps are in [BUILDING.md](BUILDING.md) and are verified on the Pi 5. There is no
+prebuilt **macOS** binary: an unsigned Mac app can't be distributed without an
+Apple Developer certificate, so macOS is source-build (a bundle *you* build opens
+normally).
 
 ## Build from source (Linux & macOS)
 
@@ -44,7 +49,9 @@ serial/hamlib CAT link and the soundcard / virtual-audio path a hardware setup
 would otherwise need.
 
 Select it in **Rig Control → TCI** and **Soundcard → Devices → TCI**, then set
-the `ws://` address and port (default `50001`).
+the `ws://` address and port (default `50001`). On a multi-slice radio, choose
+which receiver fldigi drives (for rig control **and** audio alike) under
+**Rig Control → TCI → Rig**.
 
 ## Reporting TCI issues — your help is appreciated
 

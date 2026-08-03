@@ -12,16 +12,17 @@ usual digital modes, logging, etc.).
 | Platform | How |
 |----------|-----|
 | **Windows 11 (x64)** | Download `fldigi-4.2.13-tci-win64.zip` from [**Releases**](https://github.com/K5PTB/fldigi/releases), unzip anywhere, run `fldigi.exe`. No installer. |
-| **Linux** (x86‑64) | Download the portable `fldigi-4.2.13-tci-x86_64.AppImage` from [**Releases**](https://github.com/K5PTB/fldigi/releases), `chmod +x` it, and run — nothing to install. Or [build from source](BUILDING.md). |
+| **Linux** (x86‑64 / PC) | Download `fldigi-4.2.13-tci-x86_64.AppImage` from [**Releases**](https://github.com/K5PTB/fldigi/releases), `chmod +x` it, and run — nothing to install. Or [build from source](BUILDING.md). |
+| **Linux** (ARM64 / Raspberry Pi) | Download `fldigi-4.2.13-tci-aarch64.AppImage` from [**Releases**](https://github.com/K5PTB/fldigi/releases), `chmod +x` it, and run. For 64‑bit Raspberry Pi OS (trixie) on a Pi 4 / Pi 5. |
 | **macOS** (Intel & Apple Silicon) | Build from source — see **[BUILDING.md](BUILDING.md)**. |
 
-The Windows zip and the Linux AppImage are built by GitHub Actions from the
-tagged release and each carries a `BUILD-INFO.txt` naming the exact commit. The
-AppImage is **x86‑64 only** — on ARM (e.g. Raspberry Pi) build from source; the
-steps are in [BUILDING.md](BUILDING.md) and are verified on the Pi 5. There is no
-prebuilt **macOS** binary: an unsigned Mac app can't be distributed without an
-Apple Developer certificate, so macOS is source-build (a bundle *you* build opens
-normally).
+The Windows zip and both Linux AppImages (x86‑64 and ARM64) are built by GitHub
+Actions from the tagged release and each carries a `BUILD-INFO.txt` naming the
+exact commit; the ARM64 build is verified on the Raspberry Pi 5. (If an AppImage
+won't start with a FUSE error, run it with `APPIMAGE_EXTRACT_AND_RUN=1`, or
+`sudo apt install libfuse2t64` on trixie.) There is no prebuilt **macOS** binary:
+an unsigned Mac app can't be distributed without an Apple Developer certificate,
+so macOS is source-build (a bundle *you* build opens normally).
 
 ## Build from source (Linux & macOS)
 
